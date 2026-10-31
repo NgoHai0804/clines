@@ -11,7 +11,7 @@ import {
 } from "@shared/ExtensionMessage"
 import { BooleanRequest, StringRequest } from "@shared/proto/cline/common"
 import { Mode } from "@shared/storage/types"
-import { IconClipboardList, IconInbox, IconPackage, IconSend } from "@tabler/icons-react"
+import { IconClipboardList, IconEye, IconMarkdown, IconPackage } from "@tabler/icons-react"
 import deepEqual from "fast-deep-equal"
 import {
 	BellIcon,
@@ -45,6 +45,7 @@ import { canRestoreWorkspaceFromMessage } from "@/components/chat/chat-view/util
 import { OptionsButtons } from "@/components/chat/OptionsButtons"
 import { CloudProvisioningRow } from "@/components/cloud/CloudProvisioningRow"
 import { WithCopyButton } from "@/components/common/CopyButton"
+import MarkdownBlock from "@/components/common/MarkdownBlock"
 import Thumbnails from "@/components/common/Thumbnails"
 import McpResponseDisplay from "@/components/mcp/chat-display/McpResponseDisplay"
 import McpResourceRow from "@/components/mcp/configuration/tabs/installed/server-row/McpResourceRow"
@@ -172,7 +173,63 @@ interface TeamRunTaskPayload {
 	subject?: string
 	content?: string
 	reportText?: string
+	status?: string
+	output?: unknown
 }
+
+type TaskDetailViewMode = "pretty" | "markdown"
+
+/** Shared detail box: Đẹp (markdown render, default) | Markdown (raw source). */
+const TaskDetailSection = memo(({ title, content }: { title: string; content: string }) => {
+	const [viewMode, setViewMode] = useState<TaskDetailViewMode>("pretty")
+	const boxClass =
+		"bg-surface-secondary/50 rounded p-2.5 text-foreground/90 border border-border/50 select-text text-[11px] leading-relaxed"
+
+	return (
+		<div className="flex flex-col gap-1">
+			<div className="flex items-center justify-between gap-2">
+				<span className={CHAT_HEADER_TITLE}>{title}</span>
+				<div
+					aria-label="Chế độ hiển thị"
+					className="inline-flex shrink-0 rounded border border-border/50 overflow-hidden"
+					role="group">
+					<button
+						aria-label="Đẹp"
+						className={`p-1 transition-colors cursor-pointer ${
+							viewMode === "pretty"
+								? "bg-(--vscode-button-background) text-(--vscode-button-foreground)"
+								: "bg-transparent text-muted-foreground hover:text-foreground"
+						}`}
+						onClick={() => setViewMode("pretty")}
+						title="Đẹp"
+						type="button">
+						<IconEye size={12} stroke={1.5} />
+					</button>
+					<button
+						aria-label="Markdown"
+						className={`p-1 transition-colors cursor-pointer border-l border-border/50 ${
+							viewMode === "markdown"
+								? "bg-(--vscode-button-background) text-(--vscode-button-foreground)"
+								: "bg-transparent text-muted-foreground hover:text-foreground"
+						}`}
+						onClick={() => setViewMode("markdown")}
+						title="Markdown"
+						type="button">
+						<IconMarkdown size={12} stroke={1.5} />
+					</button>
+				</div>
+			</div>
+			{viewMode === "pretty" ? (
+				<div className={`${boxClass} [&_.inline-markdown-block]:text-[11px] [&_p:last-child]:mb-0`}>
+					<MarkdownBlock markdown={content} />
+				</div>
+			) : (
+				<div className={`${boxClass} whitespace-pre-wrap font-mono`}>{content}</div>
+			)}
+		</div>
+	)
+})
+TaskDetailSection.displayName = "TaskDetailSection"
 
 const cleanAgentName = (id?: string, fallback = "Coordinator"): string => {
 	if (!id) return fallback
@@ -187,6 +244,12 @@ const cleanAgentName = (id?: string, fallback = "Coordinator"): string => {
 		trimmed.toLowerCase() === "agent"
 	) {
 		return "Coordinator"
+	}
+	// Dev-6551ae1053d2-1 → Dev; Reviewer-395529902aae-1 → Reviewer
+	const instance = trimmed.match(/^([A-Za-z][A-Za-z0-9]*)-[0-9a-f]{6,}(?:-\d+)?$/i)
+	if (instance) {
+		const base = instance[1]
+		return base.charAt(0).toUpperCase() + base.slice(1)
 	}
 	if (trimmed.toLowerCase() === "coder") return "Coder"
 	if (trimmed.toLowerCase() === "reviewer") return "Reviewer"
@@ -210,7 +273,6 @@ const TeamRunTaskCard = memo(({ tool, message, type = "assign", selectedAgentId,
 	} catch {}
 
 	const rawSenderId = canonicalAgentId(parsed.fromAgentId || parsed.from || message?.agentId) || "coordinator"
-	const senderName = cleanAgentName(rawSenderId, message?.agentDisplayName || "Coordinator")
 	const recipientId =
 		canonicalAgentId(
 			parsed.toAgentId ||
@@ -220,7 +282,6 @@ const TeamRunTaskCard = memo(({ tool, message, type = "assign", selectedAgentId,
 				(type === "assign" || type === "handoff" ? parsed.agentId : undefined) ||
 				(type === "handoff" || (type === "message" && !isCoordinatorChannel(rawSenderId)) ? "coordinator" : ""),
 		) || (type === "handoff" || type === "message" ? "coordinator" : "")
-	const recipientName = cleanAgentName(recipientId, "Coordinator")
 
 	const rawInstruction =
 		parsed.instruction ||
@@ -252,42 +313,78 @@ const TeamRunTaskCard = memo(({ tool, message, type = "assign", selectedAgentId,
 		return null
 	}
 
-	const isRecipient = Boolean(selectedAgentId && canonicalAgentId(recipientId) === canonicalAgentId(selectedAgentId))
+	const isRecipient = Boolean(
+		selectedAgentId &&
+			(canonicalAgentId(recipientId) === canonicalAgentId(selectedAgentId) ||
+				// Dev-abc… vs Dev when roster id differs from instance id
+				cleanAgentName(recipientId).toLowerCase() === cleanAgentName(selectedAgentId).toLowerCase()),
+	)
 
 	const toolName =
 		tool.tool || (type === "handoff" ? "orvanta_submit_handoff" : type === "message" ? "team_send_message" : "team_run_task")
 	const kind = getCoordinationCardKind(toolName, rawSenderId, recipientId)
+	const status = parsed.status?.toLowerCase() ?? ""
+	const output =
+		parsed.output && typeof parsed.output === "object" && !Array.isArray(parsed.output)
+			? (parsed.output as Record<string, unknown>)
+			: undefined
+	const outputStatus = typeof output?.status === "string" ? output.status.toLowerCase() : ""
+	const outputText = typeof output?.text === "string" ? output.text.trim() : ""
+	const outputMode = typeof output?.mode === "string" ? output.mode : ""
+	const resultText = (parsed.reportText || (kind === "report" ? rawInstruction : "") || outputText || "").trim()
+	const hasResult = Boolean(resultText)
+	const isPendingDispatch =
+		status === "queued" ||
+		status === "dispatched" ||
+		status === "joined" ||
+		outputStatus === "queued" ||
+		outputStatus === "dispatched"
+	const isCompleted =
+		kind === "report" ||
+		status === "completed" ||
+		status === "done" ||
+		outputStatus === "completed" ||
+		outputStatus === "done" ||
+		(outputMode === "sync" && hasResult) ||
+		(hasResult && !isPendingDispatch)
 
-	let headerIcon = <IconClipboardList className="text-indigo-400 shrink-0" size={CHAT_ROW_ICON_PX} stroke={1.5} />
-	let headerTitle = `${senderName} giao việc cho @${recipientName}`
-	let cardColorClass = "border-indigo-500/30 bg-indigo-500/10"
+	// Agent channel: slip stays "Nhận việc" / "Tin nhắn" — only the received task.
+	// Coordinator: Completed chrome + "Kết quả" when the reply is folded into this card.
+	const showCompletionUi = isCompleted && !isRecipient
 
-	if (kind === "report") {
-		cardColorClass = "border-emerald-500/30 bg-emerald-500/10"
-		headerIcon = <IconSend className="text-emerald-400 shrink-0" size={CHAT_ROW_ICON_PX} stroke={1.5} />
-		headerTitle = isRecipient
-			? `${recipientName} nhận báo cáo từ @${senderName}`
-			: `@${senderName} báo cáo cho ${recipientName}`
-	} else {
-		headerTitle = isRecipient
-			? `@${recipientName} nhận nhiệm vụ từ ${senderName}`
-			: `${senderName} giao việc cho @${recipientName}`
-	}
+	const headerIcon = (
+		<IconClipboardList
+			className={`${showCompletionUi ? "text-success" : "text-indigo-400"} shrink-0`}
+			size={CHAT_ROW_ICON_PX}
+			stroke={1.5}
+		/>
+	)
+	const cardColorClass = showCompletionUi ? "border-success/40 bg-success/10" : "border-indigo-500/30 bg-indigo-500/10"
 
-	const isKnownTeammate =
-		recipientId &&
-		recipientId !== "coordinator" &&
-		recipientId !== "agent" &&
-		!/^\d+/.test(recipientId) &&
-		recipientId.toLowerCase() !== selectedAgentId?.toLowerCase()
+	const headerTitle = isRecipient
+		? type === "message"
+			? "Tin nhắn"
+			: "Nhận việc"
+		: type === "message"
+			? "Nhắn agent"
+			: "Giao việc"
+
+	const teammateChannelId =
+		kind === "report"
+			? rawSenderId
+			: recipientId && recipientId !== "coordinator" && recipientId !== "agent" && !/^\d+/.test(recipientId)
+				? recipientId
+				: ""
+	const isKnownTeammate = Boolean(teammateChannelId) && teammateChannelId.toLowerCase() !== selectedAgentId?.toLowerCase()
 
 	return (
 		<div
 			className={`rounded-md border ${cardColorClass} p-2.5 text-xs flex flex-col gap-1.5 my-1.5 transition-all`}
 			data-task-id={parsed.taskId}
+			data-task-status={showCompletionUi ? "completed" : "assigned"}
 			data-ts={message?.ts}
 			id={omitDomId ? undefined : `message-${message?.ts || ""}`}>
-			{/* Header line: Ai giao cho ai / Ai báo cáo cho ai + toggle button */}
+			{/* Collapsed: mô tả task + agent + trạng thái; mũi tên mở chi tiết */}
 			<div className="flex items-center justify-between gap-2">
 				<div
 					className="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer select-none"
@@ -300,28 +397,39 @@ const TeamRunTaskCard = memo(({ tool, message, type = "assign", selectedAgentId,
 					</button>
 					<span className="shrink-0">{headerIcon}</span>
 					<span className={`${CHAT_HEADER_TITLE} truncate`}>{headerTitle}</span>
-					{parsed.taskId && (
+					{parsed.taskId?.trim() && (
 						<span className="shrink-0 font-mono text-[10px] text-muted-foreground bg-surface-secondary px-1.5 py-0.2 rounded border border-border/50">
-							#{parsed.taskId}
+							#{parsed.taskId.trim()}
 						</span>
 					)}
+					<span
+						className={`shrink-0 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+							showCompletionUi
+								? "text-success bg-success/15 border-success/35"
+								: "text-indigo-300 bg-indigo-500/15 border-indigo-500/30"
+						}`}>
+						{showCompletionUi ? "Completed" : "Assigned"}
+					</span>
 				</div>
 				<div className="flex items-center gap-1.5 shrink-0">
 					{isKnownTeammate && (
 						<button
-							className="rounded bg-indigo-500/20 px-2 py-0.5 text-[11px] text-indigo-300 hover:bg-indigo-500/30 cursor-pointer font-mono transition-colors"
+							className={`rounded px-2 py-0.5 text-[11px] cursor-pointer font-mono transition-colors ${
+								showCompletionUi
+									? "bg-success/20 text-success hover:bg-success/30"
+									: "bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30"
+							}`}
 							onClick={() => {
-								window.postMessage({ type: "orvanta_switch_channel", channelId: recipientId }, "*")
+								window.postMessage({ type: "orvanta_switch_channel", channelId: teammateChannelId }, "*")
 							}}
-							title={`Chuyển tới kênh @${cleanAgentName(recipientId)}`}
+							title={`Chuyển tới kênh @${cleanAgentName(teammateChannelId)}`}
 							type="button">
-							@{cleanAgentName(recipientId)}
+							@{cleanAgentName(teammateChannelId)}
 						</button>
 					)}
 				</div>
 			</div>
 
-			{/* 1 - 2 dòng tóm tắt nội dung bên dưới tiêu đề */}
 			{summaryText && (
 				<div
 					className="text-[11.5px] text-foreground/80 line-clamp-2 leading-relaxed pl-6 cursor-pointer hover:text-foreground transition-colors"
@@ -331,13 +439,15 @@ const TeamRunTaskCard = memo(({ tool, message, type = "assign", selectedAgentId,
 				</div>
 			)}
 
-			{/* Khối xem chi tiết đầy đủ (sổ hết không có thanh cuộn) */}
 			{isExpanded && (
-				<div className="border-t border-indigo-500/20 pt-2.5 flex flex-col gap-2 text-[11px] text-muted-foreground pl-1">
-					{parsed.taskId && (
+				<div
+					className={`border-t pt-2.5 flex flex-col gap-2 text-[11px] text-muted-foreground pl-1 ${
+						showCompletionUi ? "border-success/25" : "border-indigo-500/20"
+					}`}>
+					{parsed.taskId?.trim() && (
 						<div className="flex items-center gap-1 font-mono text-[11px]">
 							<span className="opacity-60">Mã nhiệm vụ:</span>
-							<span className="text-foreground font-semibold">#{parsed.taskId}</span>
+							<span className="text-foreground font-semibold">#{parsed.taskId.trim()}</span>
 						</div>
 					)}
 					{parsed.deliverableArtifactPath && (
@@ -347,27 +457,10 @@ const TeamRunTaskCard = memo(({ tool, message, type = "assign", selectedAgentId,
 							<span className="font-semibold underline select-all">{parsed.deliverableArtifactPath}</span>
 						</div>
 					)}
-					{rawInstruction && (
-						<div className="flex flex-col gap-1">
-							<span className={CHAT_HEADER_TITLE}>
-								{kind === "report" ? "Nội dung báo cáo chi tiết:" : "Nội dung yêu cầu chi tiết:"}
-							</span>
-							<div className="bg-surface-secondary/50 rounded p-2.5 text-foreground/90 whitespace-pre-wrap font-mono text-[11px] leading-relaxed border border-border/50 select-text">
-								{rawInstruction}
-							</div>
-						</div>
+					{rawInstruction && kind !== "report" && (
+						<TaskDetailSection content={rawInstruction} title="Nội dung yêu cầu chi tiết:" />
 					)}
-					{parsed.reportText && (
-						<div className="flex flex-col gap-1 mt-1">
-							<div className={`flex items-center gap-1.5 ${CHAT_HEADER_TITLE} text-emerald-400`}>
-								<IconInbox size={CHAT_ROW_ICON_PX} />
-								<span>Báo cáo kết quả:</span>
-							</div>
-							<div className="bg-emerald-500/10 border border-emerald-500/20 rounded p-2.5 text-foreground/90 whitespace-pre-wrap font-mono text-[11px] leading-relaxed select-text">
-								{parsed.reportText}
-							</div>
-						</div>
-					)}
+					{showCompletionUi && hasResult && <TaskDetailSection content={resultText} title="Kết quả:" />}
 					{parsed.context != null && (
 						<div className="flex flex-col gap-1">
 							<span className={CHAT_HEADER_TITLE}>Ngữ cảnh bổ sung:</span>
@@ -627,6 +720,32 @@ export const ChatRowContent = memo(
 				return null
 			}
 		}, [message.say, message.text])
+
+		// Hooks must run unconditionally — tool / conditional-rules paths early-return below.
+		// Channel switches can reuse a ChatRow fiber across message types when the agent
+		// channel filter changes; skipping these effects caused "Rendered more hooks…".
+		useEffect(() => {
+			// If command was executing and now isn't, clean up
+			if (isCommandMessage && prevCommandExecutingRef.current && !isCommandExecuting) {
+				setIsOutputFullyExpanded(false)
+			}
+
+			// Update ref for next render
+			prevCommandExecutingRef.current = isCommandExecuting
+		}, [isCommandMessage, isCommandExecuting])
+
+		// Auto-expand when command starts executing (only if running > 500ms)
+		useEffect(() => {
+			if (isCommandMessage && isCommandExecuting && !isExpanded) {
+				// Wait 500ms before auto-expanding to avoid animating fast commands
+				const timer = setTimeout(() => {
+					// Expand after 500ms
+					onToggleExpand(message.ts, { preserveAutoScroll: true })
+				}, 500)
+
+				return () => clearTimeout(timer)
+			}
+		}, [isCommandMessage, isCommandExecuting, isExpanded, onToggleExpand, message.ts])
 
 		// Helper function to check if file is an image
 		const isImageFile = (filePath: string): boolean => {
@@ -1079,30 +1198,6 @@ export const ChatRowContent = memo(
 				}
 			}
 		}
-
-		// Reset output expansion state when command stops (completes or is cancelled)
-		useEffect(() => {
-			// If command was executing and now isn't, clean up
-			if (isCommandMessage && prevCommandExecutingRef.current && !isCommandExecuting) {
-				setIsOutputFullyExpanded(false)
-			}
-
-			// Update ref for next render
-			prevCommandExecutingRef.current = isCommandExecuting
-		}, [isCommandMessage, isCommandExecuting])
-
-		// Auto-expand when command starts executing (only if running > 500ms)
-		useEffect(() => {
-			if (isCommandMessage && isCommandExecuting && !isExpanded) {
-				// Wait 500ms before auto-expanding to avoid animating fast commands
-				const timer = setTimeout(() => {
-					// Expand after 500ms
-					onToggleExpand(message.ts, { preserveAutoScroll: true })
-				}, 500)
-
-				return () => clearTimeout(timer)
-			}
-		}, [isCommandMessage, isCommandExecuting, isExpanded, onToggleExpand, message.ts])
 
 		if (message.ask === "command" || message.say === "command") {
 			return (

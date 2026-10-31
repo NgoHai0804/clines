@@ -137,15 +137,34 @@ async function withWorkspaceMutation<T>(workspaceRoot: string, operation: () => 
 				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 				try {
 					const lockStat = await stat(lockPath);
-					const lock = JSON.parse(await readFile(lockPath, "utf8")) as { pid?: number };
-					let ownerAlive = false;
-					if (Number.isSafeInteger(lock.pid) && lock.pid! > 0) {
-						try { process.kill(lock.pid!, 0); ownerAlive = true; }
-						catch (processError) { ownerAlive = (processError as NodeJS.ErrnoException).code === "EPERM"; }
+					const rawLock = await readFile(lockPath, "utf8");
+					const ageMs = Date.now() - lockStat.mtimeMs;
+					// Empty / truncated lock from a crashed writer — steal after 1s.
+					if (!rawLock.trim()) {
+						if (ageMs > 1_000) await rm(lockPath, { force: true });
+					} else {
+						const lock = JSON.parse(rawLock) as { pid?: number };
+						let ownerAlive = false;
+						if (Number.isSafeInteger(lock.pid) && lock.pid! > 0) {
+							try {
+								process.kill(lock.pid!, 0);
+								ownerAlive = true;
+							} catch (processError) {
+								ownerAlive = (processError as NodeJS.ErrnoException).code === "EPERM";
+							}
+						}
+						if (!ownerAlive && ageMs > 1_000) await rm(lockPath, { force: true });
 					}
-					if (!ownerAlive && Date.now() - lockStat.mtimeMs > 1_000) await rm(lockPath, { force: true });
 				} catch {
-					// Wait if a lock file is incomplete; never steal a lock on parse failure.
+					// Incomplete lock mid-write: wait briefly, then steal if still unreadable.
+					try {
+						const lockStat = await stat(lockPath);
+						if (Date.now() - lockStat.mtimeMs > 2_000) {
+							await rm(lockPath, { force: true });
+						}
+					} catch {
+						/* Lock already gone. */
+					}
 				}
 				if (Date.now() >= lockDeadline) throw new Error("Timed out waiting for Orvanta roster writer lock");
 				await new Promise((resolve) => setTimeout(resolve, 20));
@@ -183,9 +202,22 @@ async function loadRosterForMutation(workspaceRoot: string): Promise<RosterJson>
 	return parseRoster(raw);
 }
 
-async function loadCompanyReadOnly(workspaceRoot: string): Promise<CompanyLoad> {
+async function hasCompanyIdentityFiles(root: string): Promise<boolean> {
+	return (
+		(await pathExists(join(root, COMPANY_FILE))) ||
+		(await pathExists(join(root, PURPOSE_FILE))) ||
+		(await pathExists(join(root, ROSTER_FILE)))
+	);
+}
+
+export async function loadCompanyReadOnly(workspaceRoot: string): Promise<CompanyLoad> {
 	const root = join(workspaceRoot, WORKSPACE_DIRNAME);
 	if (!(await pathExists(root))) {
+		return { status: "missing" };
+	}
+	// Runtime (SDK session host / TeamStore) may create `.orvanta/local/**`
+	// before a company exists. Treat that as uninitialized, not broken.
+	if (!(await hasCompanyIdentityFiles(root))) {
 		return { status: "missing" };
 	}
 	const company = await readJsonIfPresent(join(root, COMPANY_FILE));
@@ -273,7 +305,8 @@ export async function createCompany(
 	const parsed = CreateCompanyInputSchema.parse(input);
 	const dest = join(workspaceRoot, WORKSPACE_DIRNAME);
 	const tmp = join(workspaceRoot, WORKSPACE_TMP_DIRNAME);
-	if (await pathExists(dest)) {
+	const existing = await loadCompanyReadOnly(workspaceRoot);
+	if (existing.status !== "missing") {
 		throw new CompanyAlreadyExistsError(workspaceRoot);
 	}
 	if (await pathExists(tmp)) {
@@ -294,9 +327,14 @@ export async function createCompany(
 	};
 
 	try {
-		await mkdir(tmp, { recursive: true });
-		await writeTree(tmp, company, parsed.purpose);
-		await rename(tmp, dest);
+		if (await pathExists(dest)) {
+			// Preserve runtime dirs already under `.orvanta/local/**`.
+			await writeTree(dest, company, parsed.purpose);
+		} else {
+			await mkdir(tmp, { recursive: true });
+			await writeTree(tmp, company, parsed.purpose);
+			await rename(tmp, dest);
+		}
 	} catch (error) {
 		await rm(tmp, { recursive: true, force: true }).catch(() => undefined);
 		throw error;
@@ -437,6 +475,8 @@ export interface UpsertAgentInput {
 	};
 	rules?: string[];
 	skills?: string[];
+	autoApproval?: AgentProfile["autoApproval"];
+	mcpServers?: string[];
 }
 
 export async function writeAgentProfile(

@@ -146,11 +146,21 @@ export function applyMessage(state: ReplicaState, incoming: ClineMessage): Repli
 	return { ...state, messages, seqByTs }
 }
 
+export type ApplyStateSnapshotOptions = {
+	/**
+	 * Host has no active task and sent an empty transcript ([+] / clearTask / New Task).
+	 * Unlike a mid-task bookkeeping snapshot with `clineMessages: []`, this MUST wipe the
+	 * replica — even on the same epoch — or the previous session keeps painting on the blank tab.
+	 */
+	idleClear?: boolean
+}
+
 /**
  * Apply a full state snapshot's transcript.
  *
  *  - older epoch        -> drop entirely
  *  - newer epoch        -> replace the transcript wholesale (new task / history load)
+ *  - idleClear + empty  -> replace with [] (authoritative blank session; see options.idleClear)
  *  - same epoch, reached by a partial before any snapshot
  *                       -> replace the carried-forward transcript, keeping this epoch's partials
  *  - same epoch:
@@ -171,14 +181,26 @@ export function applyStateSnapshot(
 	snapshotEpoch = 0,
 	snapshotVersion = 0,
 	snapshotTurnState?: TurnState,
+	options?: ApplyStateSnapshotOptions,
 ): ReplicaState {
 	if (snapshotEpoch < state.epoch) {
+		// Stale snapshot — but an idle clear is authoritative for leaving the task, so still
+		// wipe when the host says there is no task (epoch stamp may lag a concurrent bump).
+		if (options?.idleClear && snapshotMessages.length === 0) {
+			return resetTo(state.epoch, [], Math.max(snapshotVersion, state.stateVersion), snapshotTurnState)
+		}
 		return state
 	}
 
 	if (snapshotEpoch > state.epoch) {
 		// New task/render: replace transcript AND adopt the snapshot's turnState wholesale.
 		return resetTo(snapshotEpoch, snapshotMessages, snapshotVersion, snapshotTurnState)
+	}
+
+	// Same epoch + host idle: blank the transcript. Mid-task empty bookkeeping snapshots must
+	// NOT pass idleClear (they keep currentTaskItem), so the never-truncate rule still holds.
+	if (options?.idleClear && snapshotMessages.length === 0) {
+		return resetTo(snapshotEpoch, [], Math.max(snapshotVersion, state.stateVersion), snapshotTurnState)
 	}
 
 	// Same epoch. When a partial reached this epoch first, the replica still shows the

@@ -37,6 +37,14 @@ vi.mock("./useWarRoom", () => ({
 				},
 			],
 		},
+		syncStatus: "live",
+		lastUpdatedAt: undefined,
+		pauseStatus: "running",
+		needsAttention: [],
+		canPauseRuntime: false,
+		requestRuntimePause: vi.fn(),
+		requestRuntimeResume: vi.fn(),
+		pauseError: undefined,
 		paused: false,
 		filter: "all",
 		setPaused: vi.fn(),
@@ -58,9 +66,13 @@ vi.mock("@/services/grpc-client", () => ({
 	TaskServiceClient: {
 		newTask: vi.fn().mockResolvedValue({}),
 		askResponse: vi.fn().mockResolvedValue({}),
+		showTaskWithId: vi.fn().mockResolvedValue({}),
+		clearTask: vi.fn().mockResolvedValue({}),
 	},
 	OrvantaServiceClient: {
 		sendAgentDirectMessage: vi.fn().mockResolvedValue({ success: true }),
+		listCeoSessions: vi.fn().mockResolvedValue({ sessions: [] }),
+		subscribeWarRoom: vi.fn(() => () => {}),
 	},
 }))
 

@@ -12,11 +12,6 @@ interface TaskSectionProps {
 		totalCacheReads?: number
 		totalCost: number
 	}
-	lastApiReqTotalTokens?: number
-	selectedModelInfo: {
-		supportsPromptCache: boolean
-		supportsImages: boolean
-	}
 	messageHandlers: MessageHandlers
 }
 
@@ -24,27 +19,6 @@ interface TaskSectionProps {
  * Task section shown when there's an active task
  * Includes the task header and manages task-specific UI
  */
-export const TaskSection: React.FC<TaskSectionProps> = ({
-	task,
-	apiMetrics,
-	lastApiReqTotalTokens,
-	selectedModelInfo,
-	messageHandlers,
-}) => {
-	return (
-		<TaskHeader
-			cacheReads={apiMetrics.totalCacheReads}
-			cacheWrites={apiMetrics.totalCacheWrites}
-			compactDisabled={messageHandlers.errorRecoveryAvailable}
-			compactTask={messageHandlers.compactTask}
-			doesModelSupportPromptCache={selectedModelInfo.supportsPromptCache}
-			lastApiReqTotalTokens={lastApiReqTotalTokens}
-			onClose={messageHandlers.handleTaskCloseButtonClick}
-			onSendMessage={messageHandlers.handleSendMessage}
-			task={task}
-			tokensIn={apiMetrics.totalTokensIn}
-			tokensOut={apiMetrics.totalTokensOut}
-			totalCost={apiMetrics.totalCost}
-		/>
-	)
+export const TaskSection: React.FC<TaskSectionProps> = ({ task, apiMetrics, messageHandlers }) => {
+	return <TaskHeader onClose={messageHandlers.handleTaskCloseButtonClick} task={task} totalCost={apiMetrics.totalCost} />
 }

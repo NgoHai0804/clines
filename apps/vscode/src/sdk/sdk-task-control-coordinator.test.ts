@@ -19,7 +19,7 @@ describe("SdkTaskControlCoordinator", () => {
 		vi.clearAllMocks()
 	})
 
-	it("cancels the active session and emits a resume task ask", async () => {
+	it("cancels the active session without offering Resume Task", async () => {
 		const activeSession = makeActiveSession()
 		const { coordinator, options } = makeCoordinator({ activeSession })
 
@@ -29,9 +29,10 @@ describe("SdkTaskControlCoordinator", () => {
 		expect(activeSession.sdkHost.abort).toHaveBeenCalledWith("session-123")
 		expect(options.sessions.setRunning).toHaveBeenCalledWith(false)
 		expect(options.messages.appendAndEmit).toHaveBeenCalledWith(
-			[expect.objectContaining({ type: "ask", ask: "resume_task" })],
+			[expect.objectContaining({ type: "say", say: "text", text: expect.stringContaining("Đã dừng") })],
 			{ type: "status", payload: { sessionId: "session-123", status: "cancelled" } },
 		)
+		expect(options.setTurnPhase).toHaveBeenCalledWith("idle")
 		expect(options.postStateToWebview).toHaveBeenCalledOnce()
 	})
 

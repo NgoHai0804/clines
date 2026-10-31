@@ -48,6 +48,20 @@ describe("withPendingUserMessage", () => {
 		expect(withPendingUserMessage([task], { afterTs: 1, message: followup })).toEqual([task, followup])
 	})
 
+	it("inserts the optimistic CEO bubble before agent replies that arrived after afterTs", () => {
+		const prior: ClineMessage = { ts: 1, type: "say", say: "task", text: "task" }
+		const agentReply: ClineMessage = { ts: 5, type: "say", say: "tool", text: '{"tool":"team_send_message"}' }
+		const ceo: ClineMessage = {
+			ts: 3,
+			type: "say",
+			say: "user_feedback",
+			text: "hello",
+			agentId: "dev",
+		}
+
+		expect(withPendingUserMessage([prior, agentReply], { afterTs: 1, message: ceo })).toEqual([prior, ceo, agentReply])
+	})
+
 	it("treats a task row as confirmation of a follow-up bubble that restarted the task", () => {
 		const followup: ClineMessage = { ts: 3, type: "say", say: "user_feedback", text: "revised prompt" }
 		const restarted: ClineMessage = { ts: 4, type: "say", say: "task", text: "revised prompt" }

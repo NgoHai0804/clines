@@ -1,11 +1,14 @@
+import { deleteSession as deleteCeoSession, listSessions } from "@cline/shared"
 import { Empty, StringArrayRequest } from "@shared/proto/cline/common"
-import { HostProvider } from "@/hosts/host-provider"
-import { ShowMessageType } from "@/shared/proto/host/window"
+import { resolveOrvantaWorkspaceRoot } from "@/orvanta/resolve-workspace"
 import { Logger } from "@/shared/services/Logger"
 import { Controller } from ".."
 
 /**
- * Deletes tasks with the specified IDs
+ * Deletes tasks with the specified IDs.
+ * Confirmation belongs in the webview (inline / button confirm) — this handler
+ * must not show a second host modal, or Orvanta history delete appears to fail
+ * when the user dismisses the redundant dialog.
  * @param controller The controller instance
  * @param request The request containing an array of task IDs to delete
  * @returns Empty response
@@ -14,22 +17,6 @@ import { Controller } from ".."
 export async function deleteTasksWithIds(controller: Controller, request: StringArrayRequest): Promise<Empty> {
 	if (!request.value || request.value.length === 0) {
 		throw new Error("Missing task IDs")
-	}
-
-	const taskCount = request.value.length
-	const message =
-		taskCount === 1
-			? "Are you sure you want to delete this task? This action cannot be undone."
-			: `Are you sure you want to delete these ${taskCount} tasks? This action cannot be undone.`
-
-	const userChoice = await HostProvider.window.showMessage({
-		type: ShowMessageType.WARNING,
-		message,
-		options: { modal: true, items: ["Delete"] },
-	})
-
-	if (userChoice.selectedOption !== "Delete") {
-		return Empty.create()
 	}
 
 	for (const id of request.value) {
@@ -53,8 +40,39 @@ async function deleteTaskWithId(controller: Controller, id: string): Promise<voi
 
 	// Remove task from state FIRST — this updates the in-memory cache
 	// immediately so the next postStateToWebview() sends the updated list.
-	await controller.deleteTaskFromState(id)
+	try {
+		await controller.deleteTaskFromState(id)
+	} catch (error) {
+		Logger.warn(`[TaskService.deleteTasksWithIds] Failed to delete SDK/history task ${id}:`, error)
+		// Still try to clear Orvanta CEO index rows that point at this task.
+	}
+
+	await deleteLinkedCeoSessions(id)
 
 	// Always update webview state so the history list and recents refresh
 	await controller.postStateToWebview()
+}
+
+/** Drop CEO session index entries whose participant taskId matches the deleted task. */
+async function deleteLinkedCeoSessions(taskId: string): Promise<void> {
+	const root = await resolveOrvantaWorkspaceRoot()
+	if (!root) {
+		return
+	}
+	try {
+		const page = await listSessions(root, { page: 1, pageSize: 200 })
+		for (const session of page.sessions) {
+			const linked = session.participantSummaries.some((participant) => participant.taskId === taskId)
+			if (!linked && session.sessionId !== taskId) {
+				continue
+			}
+			try {
+				await deleteCeoSession(root, session.sessionId)
+			} catch (error) {
+				Logger.warn(`[TaskService.deleteTasksWithIds] Failed to delete CEO session ${session.sessionId}:`, error)
+			}
+		}
+	} catch (error) {
+		Logger.warn("[TaskService.deleteTasksWithIds] Failed to scan CEO sessions after task delete:", error)
+	}
 }

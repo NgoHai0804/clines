@@ -42,6 +42,13 @@ export interface ChatTab {
 	/** Trạng thái cờ đang chạy (running) hay chờ người dùng */
 	isRunning?: boolean
 
+	/**
+	 * Tab đang xem lại lịch sử (mở từ History drawer / CEO session).
+	 * Khi true: đổi Agent phải load đúng transcript của Agent đó (showTaskWithId),
+	 * không được ghi đè agentTasks bằng task đang mở.
+	 */
+	historyBrowse?: boolean
+
 	/** @deprecated Tương thích ngược: Đọc qua getTabActiveTaskId(tab). Không ghi độc lập. */
 	taskId?: string
 

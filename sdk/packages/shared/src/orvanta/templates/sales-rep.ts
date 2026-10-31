@@ -8,7 +8,7 @@ modelId: null
 maxIterations: 40
 temperature: null
 tools:
-  allow: [browser_action, web_fetch, write_to_file, read_files, grep, list_files, orvanta_submit_handoff]
+  allow: [browser_action, web_fetch, write_to_file, read_files, grep, list_files, team_send_message, team_read_mailbox, orvanta_submit_handoff]
   deny: [apply_diff, execute_command, team_spawn_teammate]
 scopePaths:
   allow: [".orvanta/artifacts/sales/**"]

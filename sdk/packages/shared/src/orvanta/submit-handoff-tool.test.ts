@@ -67,4 +67,42 @@ describe("orvanta_submit_handoff tool", () => {
 			await rm(ws, { recursive: true, force: true });
 		}
 	});
+
+	it("invokes onSubmitted after writing the handoff file", async () => {
+		const ws = await tempWorkspace();
+		try {
+			const calls: Array<{ taskId: string; requesterId: string; path: string }> =
+				[];
+			const tool = createOrvantaSubmitHandoffTool({
+				workspaceRoot: ws,
+				requesterId: "reviewer",
+				onSubmitted: async (info) => {
+					calls.push({
+						taskId: info.taskId,
+						requesterId: info.requesterId,
+						path: info.path,
+					});
+					return { taskCompleted: true };
+				},
+			});
+			const result = await tool.execute(
+				{
+					taskId: "task_0001",
+					content: "Status OK",
+				},
+				{} as any,
+			);
+			expect(result.ok).toBe(true);
+			expect(result.taskCompleted).toBe(true);
+			expect(calls).toEqual([
+				{
+					taskId: "task_0001",
+					requesterId: "reviewer",
+					path: ".orvanta/shared/handoffs/task_0001/reviewer.md",
+				},
+			]);
+		} finally {
+			await rm(ws, { recursive: true, force: true });
+		}
+	});
 });

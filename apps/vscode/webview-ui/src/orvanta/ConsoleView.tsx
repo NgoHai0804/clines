@@ -1,12 +1,14 @@
 import type { OrvantaRosterAgent } from "@shared/proto/cline/orvanta"
 import { IconArrowLeft } from "@tabler/icons-react"
-import { useCallback, useContext, useEffect, useMemo } from "react"
+import React, { useCallback, useContext, useEffect, useMemo } from "react"
 import { AgentBadge } from "@/components/common/AgentBadge"
 import { ExtensionStateContext } from "@/context/ExtensionStateContext"
+import { ApprovalNeededToast } from "./ApprovalNeededToast"
 import { TeamFeedView } from "./TeamFeedView"
 import { TeamSidebar } from "./TeamSidebar"
 import { ChromeTabBar } from "./tabs/ChromeTabBar"
 import { ConsoleHistoryDrawer } from "./tabs/ConsoleHistoryDrawer"
+import { getTabActiveTaskId } from "./tabs/types"
 import { useChatTabs } from "./tabs/useChatTabs"
 
 export interface ConsoleViewProps {
@@ -52,24 +54,51 @@ export function ConsoleView({
 
 	// Synchronize backend currentTaskItem with the active agent in the active tab.
 	// Pass HistoryItem.sessionId (CEO session) separately from the SDK task id.
+	// History browse: bindTaskToActiveAgent refuses to overwrite distinct agent→task bindings.
 	useEffect(() => {
 		if (currentTaskItem?.id && activeTab) {
-			const currentAgentTask = activeTab.agentTasks?.[activeTab.activeAgentId]
+			const taskId = currentTaskItem.id
 			const ceoSessionId = currentTaskItem.sessionId
-			const needsTaskBind = !currentAgentTask || currentAgentTask !== currentTaskItem.id
+			const blankTab = !getTabActiveTaskId(activeTab) && !activeTab.sessionId
+			// After [+], clearTask may still leave the previous tab's task loaded briefly.
+			// Never stamp that onto a brand-new empty tab — that clones the open history.
+			const ownedByOtherTab = tabs.some(
+				(t) =>
+					t.id !== activeTab.id &&
+					(t.taskId === taskId ||
+						Object.values(t.agentTasks || {}).includes(taskId) ||
+						(!!ceoSessionId && t.sessionId === ceoSessionId)),
+			)
+			if (blankTab && ownedByOtherTab) {
+				return
+			}
+			const currentAgentTask = activeTab.agentTasks?.[activeTab.activeAgentId]
+			const needsTaskBind = !currentAgentTask || currentAgentTask !== taskId
 			const needsSessionBind = !!ceoSessionId && activeTab.sessionId !== ceoSessionId
 			if (needsTaskBind || needsSessionBind) {
-				bindTaskToActiveAgent(currentTaskItem.id, currentTaskItem.task, ceoSessionId)
+				bindTaskToActiveAgent(taskId, currentTaskItem.task, ceoSessionId)
 			}
 		}
-	}, [currentTaskItem, activeTab, bindTaskToActiveAgent])
+	}, [currentTaskItem, activeTab, tabs, bindTaskToActiveAgent])
+
+	const chatChildren = useMemo(
+		() =>
+			React.Children.map(children, (child) => {
+				if (!React.isValidElement(child)) return child
+				return React.cloneElement(child as React.ReactElement<{ historyBrowse?: boolean }>, {
+					historyBrowse: Boolean(activeTab?.historyBrowse),
+				})
+			}),
+		[children, activeTab?.historyBrowse],
+	)
 
 	const handleSelectAgent = useCallback(
-		async (agentId: string) => {
-			onSelectAgent(agentId)
-			await switchAgentInActiveTab(agentId)
+		(agentId: string) => {
+			// Focus-only via switchAgentInActiveTab (onActiveAgentChange → onSelectAgent).
+			// Must not clearTask / showTaskWithId — that aborts the whole CEO team runtime.
+			switchAgentInActiveTab(agentId)
 		},
-		[onSelectAgent, switchAgentInActiveTab],
+		[switchAgentInActiveTab],
 	)
 
 	const isTeamFeed = focusAgentId === "team-feed"
@@ -94,6 +123,7 @@ export function ConsoleView({
 
 			{/* Main Workspace Area: Sidebar on left + Content on right */}
 			<div className="flex flex-1 min-h-0 w-full overflow-hidden relative">
+				<ApprovalNeededToast agents={agents ?? []} focusAgentId={focusAgentId} onSelectAgent={handleSelectAgent} />
 				{/* Left Collapsible Channels Sidebar */}
 				<TeamSidebar
 					agents={agents}
@@ -112,7 +142,7 @@ export function ConsoleView({
 							<TeamFeedView
 								ceoSessionId={activeTab?.sessionId}
 								companyName={companyName}
-								onSelectAgent={onSelectAgent}
+								onSelectAgent={(agentId) => void handleSelectAgent(agentId)}
 							/>
 						</div>
 					)}
@@ -129,7 +159,7 @@ export function ConsoleView({
 								<div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
 									<button
 										className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground hover:text-foreground p-1 rounded hover:bg-surface-secondary cursor-pointer transition-colors whitespace-nowrap"
-										onClick={() => onSelectAgent("team-feed")}
+										onClick={() => void handleSelectAgent("team-feed")}
 										title="Quay lại #team-feed"
 										type="button">
 										<IconArrowLeft className="shrink-0" size={14} stroke={1.5} />
@@ -171,7 +201,7 @@ export function ConsoleView({
 								</div>
 							</div>
 						)}
-						<div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden relative">{children}</div>
+						<div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden relative">{chatChildren}</div>
 					</div>
 				</div>
 
@@ -185,15 +215,32 @@ export function ConsoleView({
 						void handleTaskDeleted(taskId)
 					}}
 					onSelectCeoSession={(session) => {
-						void openSessionInTab(
-							session.sessionId,
-							session.title,
-							session.participants.map((p) => ({
-								agentSlug: p.agentSlug,
-								taskId: p.taskId || p.sdkSessionId || undefined,
-								agentNumericId: Number(p.agentNumericId) || undefined,
-							})),
-						)
+						// CEO manifests often list only the Coordinator participant, but the
+						// shared transcript holds every Agent's work. Bind the whole roster to
+						// that shared taskId so channel switches keep Agent history visible.
+						const sharedTaskId =
+							session.participants.find((p) => p.agentSlug === "coordinator")?.taskId ||
+							session.participants.find((p) => p.taskId || p.sdkSessionId)?.taskId ||
+							session.participants.find((p) => p.sdkSessionId)?.sdkSessionId ||
+							""
+						const participants = session.participants.map((p) => ({
+							agentSlug: p.agentSlug,
+							taskId: p.taskId || p.sdkSessionId || sharedTaskId || undefined,
+							agentNumericId: Number(p.agentNumericId) || undefined,
+						}))
+						if (sharedTaskId) {
+							for (const agent of agents) {
+								if (!participants.some((p) => p.agentSlug === agent.id)) {
+									participants.push({
+										agentSlug: agent.id,
+										taskId: sharedTaskId,
+										agentNumericId:
+											Number((agent as { agentNumericId?: number }).agentNumericId) || undefined,
+									})
+								}
+							}
+						}
+						void openSessionInTab(session.sessionId, session.title, participants)
 						toggleHistory(false)
 					}}
 					onSelectTask={(taskId, title, agentId, sessionAgentTasks) => {

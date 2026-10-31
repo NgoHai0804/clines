@@ -343,6 +343,24 @@ export interface CheckToolPolicyOptions {
 	workspaceRoot?: string;
 }
 
+/**
+ * Team/Orvanta plumbing tools. Role allow-lists describe work capabilities
+ * (read/write/exec); they must not accidentally block mailbox replies or task
+ * closeout. Explicit deny still wins as an escape hatch.
+ */
+export const COORDINATION_TOOL_NAMES = new Set([
+	"team_send_message",
+	"team_read_mailbox",
+	"team_mission_log",
+	"team_status",
+	"team_task",
+	"orvanta_submit_handoff",
+]);
+
+export function isCoordinationTool(toolName: string): boolean {
+	return COORDINATION_TOOL_NAMES.has(toolName.toLowerCase().trim());
+}
+
 export function checkToolPolicy(
 	options: CheckToolPolicyOptions,
 ): ToolPolicyCheckResult {
@@ -467,6 +485,12 @@ export function checkToolPolicy(
 			tool: options.toolName,
 			reason: `Tool '${options.toolName}' bị từ chối bởi chính sách vai trò của ${agentId}.`,
 		};
+	}
+
+	// Coordination tools bypass allow-lists so teammates can always reply /
+	// close tasks even when profiles only list work tools (read/grep/…).
+	if (isCoordinationTool(tool)) {
+		return { allowed: true, tool: options.toolName };
 	}
 
 	const allowList = (policy.allow || []).map((t) => t.toLowerCase().trim());

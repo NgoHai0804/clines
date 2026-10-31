@@ -237,6 +237,9 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 
 	const handleDeleteHistoryItem = useCallback(
 		(id: string) => {
+			if (!window.confirm("Are you sure you want to delete this task? This action cannot be undone.")) {
+				return
+			}
 			TaskServiceClient.deleteTasksWithIds(StringArrayRequest.create({ value: [id] }))
 				.then(async () => {
 					await loadTaskHistory(0)
@@ -249,15 +252,23 @@ const HistoryView = ({ onDone }: HistoryViewProps) => {
 
 	const handleDeleteSelectedHistoryItems = useCallback(
 		(ids: string[]) => {
-			if (ids.length > 0) {
-				TaskServiceClient.deleteTasksWithIds(StringArrayRequest.create({ value: ids }))
-					.then(async () => {
-						await loadTaskHistory(0)
-						setSelectedItems([])
-						await fetchTotalTasksSize()
-					})
-					.catch((error) => console.error("Error deleting tasks:", error))
+			if (ids.length === 0) {
+				return
 			}
+			const message =
+				ids.length === 1
+					? "Are you sure you want to delete this task? This action cannot be undone."
+					: `Are you sure you want to delete these ${ids.length} tasks? This action cannot be undone.`
+			if (!window.confirm(message)) {
+				return
+			}
+			TaskServiceClient.deleteTasksWithIds(StringArrayRequest.create({ value: ids }))
+				.then(async () => {
+					await loadTaskHistory(0)
+					setSelectedItems([])
+					await fetchTotalTasksSize()
+				})
+				.catch((error) => console.error("Error deleting tasks:", error))
 		},
 		[fetchTotalTasksSize, loadTaskHistory],
 	)

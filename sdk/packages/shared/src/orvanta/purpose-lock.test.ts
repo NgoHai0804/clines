@@ -235,6 +235,41 @@ describe("checkToolPolicy across all role templates", () => {
 
 		const handoffCheck = checkToolPolicy({ toolName: "orvanta_submit_handoff", agentId: "reviewer", policy });
 		expect(handoffCheck.allowed).toBe(true);
+
+		// Coordination tools must work even when omitted from allow-lists
+		// (profiles often only list work tools like read/grep).
+		const sparsePolicy = {
+			allow: ["read_files", "list_files"],
+			deny: ["write_to_file", "team_spawn_teammate"],
+		};
+		expect(
+			checkToolPolicy({
+				toolName: "team_send_message",
+				agentId: "reviewer",
+				policy: sparsePolicy,
+			}).allowed,
+		).toBe(true);
+		expect(
+			checkToolPolicy({
+				toolName: "team_read_mailbox",
+				agentId: "reviewer",
+				policy: sparsePolicy,
+			}).allowed,
+		).toBe(true);
+		expect(
+			checkToolPolicy({
+				toolName: "orvanta_submit_handoff",
+				agentId: "reviewer",
+				policy: sparsePolicy,
+			}).allowed,
+		).toBe(true);
+		expect(
+			checkToolPolicy({
+				toolName: "team_spawn_teammate",
+				agentId: "reviewer",
+				policy: sparsePolicy,
+			}).allowed,
+		).toBe(false);
 	});
 
 	it("researcher template: denies write_to_file and execute_command, allows browser_action and web_fetch", () => {

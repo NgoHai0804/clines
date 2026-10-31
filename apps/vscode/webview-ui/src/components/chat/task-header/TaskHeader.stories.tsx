@@ -12,25 +12,19 @@ const meta: Meta<typeof TaskHeader> = {
 		docs: {
 			description: {
 				component:
-					"TaskHeader displays task information, token usage, cost, and provides controls for task management. It includes expandable details, context window visualization, and task timeline.",
+					"TaskHeader displays task information, cost, and provides controls for task management. Context usage lives in the chat input ring.",
 			},
 		},
 	},
 	decorators: [createStorybookDecorator()],
 	argTypes: {
-		tokensIn: { control: "number", description: "Input tokens used" },
-		tokensOut: { control: "number", description: "Output tokens used" },
-		cacheWrites: { control: "number", description: "Cache write tokens" },
-		cacheReads: { control: "number", description: "Cache read tokens" },
 		totalCost: { control: "number", description: "Total cost in USD" },
-		doesModelSupportPromptCache: { control: "boolean", description: "Whether model supports prompt caching" },
 	},
 }
 
 export default meta
 type Story = StoryObj<typeof TaskHeader>
 
-// Helper to create mock task messages
 const createTask = (text: string, images?: string[], files?: string[]): ClineMessage => ({
 	ts: Date.now(),
 	type: "say",
@@ -40,7 +34,6 @@ const createTask = (text: string, images?: string[], files?: string[]): ClineMes
 	files,
 })
 
-// Helper to create mock messages for timeline
 const createMessages = (): ClineMessage[] => [
 	{
 		ts: Date.now() - 300000,
@@ -68,64 +61,39 @@ const createMessages = (): ClineMessage[] => [
 	},
 ]
 
+const anthropicConfig = {
+	actModeApiProvider: "anthropic" as const,
+	actModeApiModelId: "claude-3-5-sonnet-20241022",
+}
+
 export const Collapsed: Story = {
 	args: {
 		task: createTask("Create a responsive navigation component for a React application"),
-		tokensIn: 2500,
-		tokensOut: 1200,
-		cacheWrites: 350,
-		cacheReads: 180,
 		totalCost: 0.085,
-		doesModelSupportPromptCache: true,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: false,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader in collapsed state showing task title, cost, and new task button.",
-			},
-		},
-	},
 }
 
 export const Expanded: Story = {
 	args: {
 		task: createTask("Create a responsive navigation component for a React application"),
-		tokensIn: 2500,
-		tokensOut: 1200,
-		cacheWrites: 350,
-		cacheReads: 180,
 		totalCost: 0.085,
-		doesModelSupportPromptCache: true,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: true,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader in expanded state showing full task details, context window, and timeline.",
-			},
-		},
-	},
 }
 
 export const WithImages: Story = {
@@ -135,31 +103,16 @@ export const WithImages: Story = {
 			["https://via.placeholder.com/400x300?text=Screenshot1", "https://via.placeholder.com/400x300?text=Screenshot2"],
 			undefined,
 		),
-		tokensIn: 3200,
-		tokensOut: 1800,
-		cacheWrites: 450,
-		cacheReads: 220,
 		totalCost: 0.125,
-		doesModelSupportPromptCache: true,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: true,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader with attached images displayed as thumbnails.",
-			},
-		},
-	},
 }
 
 export const WithFiles: Story = {
@@ -169,108 +122,39 @@ export const WithFiles: Story = {
 			"tsconfig.json",
 			"vite.config.ts",
 		]),
-		tokensIn: 4500,
-		tokensOut: 2400,
-		cacheWrites: 680,
-		cacheReads: 340,
 		totalCost: 0.185,
-		doesModelSupportPromptCache: true,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: true,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader with attached files displayed as thumbnails.",
-			},
-		},
-	},
 }
 
 export const LongTaskText: Story = {
 	args: {
 		task: createTask(
-			"Create a comprehensive e-commerce application with the following features:\n1. User authentication and authorization\n2. Product catalog with search and filtering\n3. Shopping cart functionality\n4. Checkout process with payment integration\n5. Order management system\n6. Admin dashboard for managing products and orders\n7. Responsive design for mobile and desktop\n8. Performance optimization and caching\n9. SEO optimization\n10. Analytics integration",
+			"Create a comprehensive e-commerce application with the following features:\n1. User authentication and authorization\n2. Product catalog with search and filtering\n3. Shopping cart functionality\n4. Checkout process with payment integration\n5. Order management system",
 		),
-		tokensIn: 5200,
-		tokensOut: 3100,
-		cacheWrites: 820,
-		cacheReads: 410,
 		totalCost: 0.245,
-		doesModelSupportPromptCache: true,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: true,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader with long task text that can be expanded to show full content.",
-			},
-		},
-	},
-}
-
-export const HighTokenUsage: Story = {
-	args: {
-		task: createTask("Refactor large codebase with TypeScript migration"),
-		tokensIn: 45000,
-		tokensOut: 28000,
-		cacheWrites: 5200,
-		cacheReads: 3800,
-		totalCost: 1.85,
-		lastApiReqTotalTokens: 73000,
-		doesModelSupportPromptCache: true,
-		onClose: () => console.log("Close clicked"),
-	},
-	decorators: [
-		createStorybookDecorator({
-			expandTaskHeader: true,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-				actModeOpenRouterModelInfo: {
-					contextWindow: 200000,
-					maxTokens: 8000,
-					supportsPromptCache: true,
-				},
-			},
-			clineMessages: createMessages(),
-		}),
-	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader showing high token usage approaching context window limits.",
-			},
-		},
-	},
 }
 
 export const NoCost: Story = {
 	args: {
 		task: createTask("Test local model with Ollama"),
-		tokensIn: 1500,
-		tokensOut: 800,
 		totalCost: 0,
-		doesModelSupportPromptCache: false,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
@@ -283,118 +167,66 @@ export const NoCost: Story = {
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader with local model (Ollama) showing no cost information.",
-			},
-		},
-	},
 }
 
 export const LocalEnvironment: Story = {
 	args: {
 		task: createTask("Test feature in local environment"),
-		tokensIn: 2200,
-		tokensOut: 1400,
 		totalCost: 0.095,
-		doesModelSupportPromptCache: true,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: true,
 			environment: Environment.local,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader with local environment border color (yellow/orange warning).",
-			},
-		},
-	},
 }
 
 export const StagingEnvironment: Story = {
 	args: {
 		task: createTask("Deploy to staging environment"),
-		tokensIn: 2800,
-		tokensOut: 1600,
 		totalCost: 0.115,
-		doesModelSupportPromptCache: true,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: true,
 			environment: Environment.staging,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader with staging environment border color (blue).",
-			},
-		},
-	},
 }
 
 export const ProductionEnvironment: Story = {
 	args: {
 		task: createTask("Deploy to production environment"),
-		tokensIn: 3100,
-		tokensOut: 1900,
 		totalCost: 0.135,
-		doesModelSupportPromptCache: true,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: true,
 			environment: Environment.production,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: createMessages(),
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader with production environment (default colors).",
-			},
-		},
-	},
 }
 
 export const MinimalTask: Story = {
 	args: {
 		task: createTask("Fix typo"),
-		tokensIn: 150,
-		tokensOut: 80,
 		totalCost: 0.005,
-		doesModelSupportPromptCache: false,
 		onClose: () => console.log("Close clicked"),
 	},
 	decorators: [
 		createStorybookDecorator({
 			expandTaskHeader: true,
-			apiConfiguration: {
-				actModeApiProvider: "anthropic",
-				actModeApiModelId: "claude-3-5-sonnet-20241022",
-			},
+			apiConfiguration: anthropicConfig,
 			clineMessages: [
 				{
 					ts: Date.now() - 60000,
@@ -411,11 +243,4 @@ export const MinimalTask: Story = {
 			],
 		}),
 	],
-	parameters: {
-		docs: {
-			description: {
-				story: "TaskHeader with minimal task showing basic functionality.",
-			},
-		},
-	},
 }

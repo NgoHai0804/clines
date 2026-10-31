@@ -17,6 +17,15 @@ function sameOptimisticMessage(left: ClineMessage, right: ClineMessage): boolean
 	const rightImages = right.images ?? []
 	const leftFiles = left.files ?? []
 	const rightFiles = right.files ?? []
+	const leftAgent = left.agentId ?? (left as { agent_id?: string }).agent_id
+	const rightAgent = right.agentId ?? (right as { agent_id?: string }).agent_id
+	// When either side is stamped for an Agent channel, require the same agent id so a
+	// Coordinator "hello" cannot confirm a CEO 1:1 bubble aimed at Reviewer/Dev.
+	if (leftAgent || rightAgent) {
+		if ((leftAgent || "") !== (rightAgent || "")) {
+			return false
+		}
+	}
 
 	return (
 		isUserAuthored(left) &&
@@ -34,7 +43,16 @@ export function hasPendingMessageConfirmation(messages: ClineMessage[], pending:
 }
 
 export function withPendingUserMessage(messages: ClineMessage[], pending: PendingUserMessage | undefined): ClineMessage[] {
-	return !pending || hasPendingMessageConfirmation(messages, pending) ? messages : [...messages, pending.message]
+	if (!pending || hasPendingMessageConfirmation(messages, pending)) {
+		return messages
+	}
+	// Insert after `afterTs` so CEO 1:1 bubbles stay before agent replies that
+	// arrive while the optimistic row is still pending (never blindly append).
+	const insertAt = messages.findIndex((message) => message.ts > pending.afterTs)
+	if (insertAt < 0) {
+		return [...messages, pending.message]
+	}
+	return [...messages.slice(0, insertAt), pending.message, ...messages.slice(insertAt)]
 }
 
 /**

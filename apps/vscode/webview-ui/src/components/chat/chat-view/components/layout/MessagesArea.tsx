@@ -1,6 +1,6 @@
 import type { ClineMessage } from "@shared/ExtensionMessage"
 import type React from "react"
-import { useCallback, useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { Virtuoso } from "react-virtuoso"
 import ChatRow from "@/components/chat/ChatRow"
 import { useExtensionState } from "@/context/ExtensionStateContext"
@@ -8,7 +8,6 @@ import { useThinkingLoaderRow } from "../../hooks/useThinkingLoaderRow"
 import type { ChatState, MessageHandlers, ScrollBehavior } from "../../types/chatTypes"
 import { isPendingResponseUnconfirmed } from "../../utils/pendingResponse"
 import { createMessageRenderer } from "../messages/MessageRenderer"
-import { StickyAnchorHeader } from "./StickyAnchorHeader"
 
 // Sentinel ts for the synthetic "Thinking..." placeholder row. Not a real message; ignored when
 // deriving scroll triggers from the tail of the rendered list.
@@ -71,29 +70,10 @@ export const MessagesArea: React.FC<MessagesAreaProps> = ({
 		setIsAtBottom,
 		disableAutoScrollRef,
 		handleRangeChanged,
-		scrolledPastUserMessage,
-		stickyPushOffset,
 		scrollToBottomSmooth,
 		scrollToBottomAuto,
 		handleLastRowContentChange,
 	} = scrollBehavior
-
-	const handleScrollToUserMessage = useCallback(() => {
-		if (!scrolledPastUserMessage) {
-			return
-		}
-		const groupIndex = groupedMessages.findIndex((row) => {
-			const message = Array.isArray(row) ? row[0] : row
-			return message?.ts === scrolledPastUserMessage.ts
-		})
-		if (groupIndex >= 0) {
-			virtuosoRef.current?.scrollToIndex({
-				index: groupIndex,
-				align: "start",
-				behavior: "smooth",
-			})
-		}
-	}, [groupedMessages, scrolledPastUserMessage, virtuosoRef])
 
 	const { expandedRows, inputValue, setActiveQuote } = chatState
 	const lastVisibleRow = useMemo(() => groupedMessages.at(-1), [groupedMessages])
@@ -224,13 +204,6 @@ export const MessagesArea: React.FC<MessagesAreaProps> = ({
 
 	return (
 		<div className="overflow-hidden flex flex-col h-full relative">
-			<StickyAnchorHeader
-				message={scrolledPastUserMessage}
-				onScrollToMessage={handleScrollToUserMessage}
-				pushOffset={stickyPushOffset}
-				selectedAgentId={selectedAgentId}
-			/>
-
 			<div className="grow flex relative" ref={scrollContainerRef}>
 				{/* Empty-list fast path: paint the loader immediately without waiting for the
 				    virtualized list's initial measure/render cycle. Mirrors the in-list row's

@@ -141,10 +141,13 @@ if (process.env.OTEL_EXPORTER_OTLP_HEADERS) {
 if (process.env.OTEL_METRIC_EXPORT_INTERVAL) {
 	buildEnvVars["process.env.OTEL_METRIC_EXPORT_INTERVAL"] = JSON.stringify(process.env.OTEL_METRIC_EXPORT_INTERVAL)
 }
-// Base configuration shared between extension and standalone builds
+// Base configuration shared between extension and standalone builds.
+// Always minify so Extension Host cold-start does not parse a 50MB+ bundle;
+// keepNames in non-production preserves readable stack frames for debugging.
 const baseConfig = {
 	bundle: true,
-	minify: production,
+	minify: true,
+	keepNames: !production,
 	sourcemap: !production,
 	logLevel: "silent",
 	define: buildEnvVars,
@@ -168,6 +171,22 @@ const extensionConfig = {
 	...baseConfig,
 	entryPoints: ["src/extension.ts"],
 	outfile: `${destDir}/extension.js`,
+	external: ["vscode"],
+}
+
+// Heavy deps (pdf/excel/mammoth, puppeteer) load on demand from dist/lazy/*.js
+// so they are not parsed during Extension Host startup.
+const lazyExtractOfficeConfig = {
+	...baseConfig,
+	entryPoints: ["src/integrations/misc/lazy-extract-office.ts"],
+	outfile: `${destDir}/lazy/extract-office.js`,
+	external: ["vscode"],
+}
+
+const lazyBrowserConfig = {
+	...baseConfig,
+	entryPoints: ["src/services/browser/lazy-browser.ts"],
+	outfile: `${destDir}/lazy/browser.js`,
 	external: ["vscode"],
 }
 
@@ -203,14 +222,27 @@ function copyPluginRuntime() {
 }
 
 async function main() {
-	const config = standalone ? standaloneConfig : e2eBuild ? e2eBuildConfig : extensionConfig
-	if (!e2eBuild) copyPluginRuntime()
-	const extensionCtx = await esbuild.context(config)
+	if (e2eBuild) {
+		const ctx = await esbuild.context(e2eBuildConfig)
+		if (watch) {
+			await ctx.watch()
+		} else {
+			await ctx.rebuild()
+			await ctx.dispose()
+		}
+		return
+	}
+
+	copyPluginRuntime()
+
+	const configs = standalone ? [standaloneConfig] : [extensionConfig, lazyExtractOfficeConfig, lazyBrowserConfig]
+
+	const contexts = await Promise.all(configs.map((config) => esbuild.context(config)))
 	if (watch) {
-		await extensionCtx.watch()
+		await Promise.all(contexts.map((ctx) => ctx.watch()))
 	} else {
-		await extensionCtx.rebuild()
-		await extensionCtx.dispose()
+		await Promise.all(contexts.map((ctx) => ctx.rebuild()))
+		await Promise.all(contexts.map((ctx) => ctx.dispose()))
 	}
 }
 

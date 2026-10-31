@@ -136,6 +136,7 @@ function loadInitialTabsState(defaultAgentId = "team-feed"): ChatTabsState {
 						createdAt: typeof t.createdAt === "number" ? t.createdAt : Date.now(),
 						lastActiveAt: typeof t.lastActiveAt === "number" ? t.lastActiveAt : Date.now(),
 						isRunning: Boolean(t.isRunning),
+						historyBrowse: Boolean(t.historyBrowse),
 						taskId: activeTaskId,
 						draftInput: tabDrafts[activeAgentId] || "",
 					}
@@ -174,6 +175,7 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 				createdAt: t.createdAt,
 				lastActiveAt: t.lastActiveAt,
 				isRunning: t.isRunning,
+				historyBrowse: t.historyBrowse,
 			}))
 			const payload = JSON.stringify({ tabs: tabsToPersist, activeTabId: state.activeTabId })
 			localStorage.setItem(CONSOLE_TABS_STORAGE_KEY_V1, payload)
@@ -223,11 +225,20 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 		[state.tabs, options, switchTaskBackend],
 	)
 
+	/**
+	 * Channel focus: update which Agent the Console is viewing.
+	 * Live team: must NOT call showTaskWithId (kills teammate runtime) — ChatView filters
+	 * the shared transcript by focusAgentId.
+	 * History browse: each Agent has its own taskId — load that transcript via showTaskWithId.
+	 */
 	const switchAgentInActiveTab = useCallback(
-		async (newAgentId: string, numericId?: number) => {
+		(newAgentId: string, numericId?: number) => {
 			const currentTab = state.tabs.find((t) => t.id === state.activeTabId)
 			if (!currentTab) return
-			const taskId = currentTab.agentTasks?.[newAgentId]
+			const boundTaskId = currentTab.agentTasks?.[newAgentId]
+			const currentlyShown = getTabActiveTaskId(currentTab)
+			const shouldLoadHistoryTask =
+				Boolean(currentTab.historyBrowse) && Boolean(boundTaskId) && boundTaskId !== currentlyShown
 
 			setState((prev) => ({
 				...prev,
@@ -237,7 +248,7 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 						...t,
 						activeAgentId: newAgentId,
 						activeAgentNumericId: numericId ?? t.activeAgentNumericId,
-						taskId,
+						taskId: boundTaskId ?? t.taskId,
 						draftInput: t.agentDrafts?.[newAgentId] ?? "",
 						lastActiveAt: Date.now(),
 					}
@@ -247,7 +258,9 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 			if (options?.onActiveAgentChange) {
 				options.onActiveAgentChange(newAgentId)
 			}
-			await switchTaskBackend(taskId)
+			if (shouldLoadHistoryTask && boundTaskId) {
+				void switchTaskBackend(boundTaskId)
+			}
 		},
 		[state.tabs, state.activeTabId, options, switchTaskBackend],
 	)
@@ -258,6 +271,23 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 			if (!current) return prev
 
 			const agentId = current.activeAgentId || "coordinator"
+			// History browse: never overwrite a pre-bound agent→task map from the CEO session.
+			const existingBinding = current.agentTasks?.[agentId]
+			if (current.historyBrowse && existingBinding && existingBinding !== taskId) {
+				return {
+					...prev,
+					tabs: prev.tabs.map((t) =>
+						t.id === prev.activeTabId
+							? {
+									...t,
+									sessionId: sessionId || t.sessionId,
+									lastActiveAt: Date.now(),
+								}
+							: t,
+					),
+				}
+			}
+
 			const updatedAgentTasks = { ...(current.agentTasks || {}), [agentId]: taskId }
 			const updatedAgentIds = Array.from(new Set([...(current.agentIds || []), agentId]))
 			const newTitle = current.title === DEFAULT_TAB_TITLE && title ? title : current.title
@@ -292,6 +322,11 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 			const effectiveAgent = agentId || options?.initialFocusAgentId || "team-feed"
 			const newTab = createDefaultTab(effectiveAgent)
 
+			// Clear the host transcript BEFORE activating the blank tab. Otherwise the new
+			// tab paints the still-loaded session, and ConsoleView's bindTask effect can
+			// stamp that task/session onto the new tab (clone-on-+ bug).
+			await switchTaskBackend(undefined)
+
 			setState((prev) => ({
 				...prev,
 				tabs: [...prev.tabs, newTab],
@@ -301,7 +336,6 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 			if (options?.onActiveAgentChange) {
 				options.onActiveAgentChange(effectiveAgent)
 			}
-			await switchTaskBackend(undefined)
 			return newTab
 		},
 		[state.tabs, options, selectTab, switchTaskBackend],
@@ -373,7 +407,29 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 			)
 			if (existing) {
 				await selectTab(existing.id)
-				setState((prev) => ({ ...prev, isHistoryOpen: false }))
+				setState((prev) => ({
+					...prev,
+					isHistoryOpen: false,
+					tabs: prev.tabs.map((t) =>
+						t.id === existing.id
+							? {
+									...t,
+									historyBrowse: true,
+									activeAgentId: initialAgent,
+									agentTasks: { ...t.agentTasks, ...agentTasksMap },
+									agentIds: Array.from(new Set([...(t.agentIds || []), ...Object.keys(agentTasksMap)])),
+									taskId: agentTasksMap[initialAgent] || t.taskId || taskId,
+								}
+							: t,
+					),
+				}))
+				const bound = agentTasksMap[initialAgent] || taskId
+				if (bound && bound !== getTabActiveTaskId(existing)) {
+					await switchTaskBackend(bound)
+				}
+				if (options?.onActiveAgentChange) {
+					options.onActiveAgentChange(initialAgent)
+				}
 				return
 			}
 
@@ -392,6 +448,7 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 					activeAgentId: initialAgent,
 					agentTasks: agentTasksMap,
 					agentIds: Object.keys(agentTasksMap),
+					historyBrowse: true,
 					lastActiveAt: Date.now(),
 				}
 
@@ -417,6 +474,7 @@ export function useChatTabs(options?: UseChatTabsOptions) {
 				activeAgentId: initialAgent,
 				agentTasks: agentTasksMap,
 				agentIds: Object.keys(agentTasksMap),
+				historyBrowse: true,
 				createdAt: now,
 				lastActiveAt: now,
 			}

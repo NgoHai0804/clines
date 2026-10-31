@@ -2010,17 +2010,20 @@ function translateAgentEvent(event: AgentEvent, state: MessageTranslatorState): 
 						try {
 							const existingContent = JSON.parse(sayTool.content || "{}")
 							const outputObj = event.output as Record<string, unknown>
-							const reportText =
-								(typeof outputObj.text === "string" ? outputObj.text : undefined) ||
-								(typeof outputObj.message === "string" ? outputObj.message : undefined) ||
-								""
+							const mode = typeof outputObj.mode === "string" ? outputObj.mode : undefined
+							const outputStatus = typeof outputObj.status === "string" ? outputObj.status : undefined
+							const isAsyncPending = mode === "async" || outputStatus === "queued" || outputStatus === "dispatched"
+							const resultText = typeof outputObj.text === "string" ? outputObj.text.trim() : ""
+							const reportText = isAsyncPending
+								? ""
+								: resultText || (typeof outputObj.message === "string" ? outputObj.message : "") || ""
 							sayTool = {
 								...sayTool,
 								content: JSON.stringify({
 									...existingContent,
 									output: event.output,
-									reportText,
-									status: outputObj.status ?? "completed",
+									...(reportText ? { reportText } : {}),
+									status: isAsyncPending ? (outputStatus ?? "queued") : "completed",
 								}),
 							}
 						} catch {}

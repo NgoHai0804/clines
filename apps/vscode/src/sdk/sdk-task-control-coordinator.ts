@@ -106,14 +106,17 @@ export class SdkTaskControlCoordinator {
 
 		this.options.sessions.setRunning(false)
 
-		const resumeMessage: ClineMessage = {
+		// Orvanta: Cancel stops the turn. Do not offer Resume Task — CEO continues by
+		// sending the next message (or the Console auto-resumes unexpected interrupts).
+		const stoppedMessage: ClineMessage = {
 			ts: Date.now(),
-			type: "ask",
-			ask: "resume_task",
-			text: "",
+			type: "say",
+			say: "text",
+			text: "Đã dừng. Gửi tin nhắn để tiếp tục nhiệm vụ.",
 			partial: false,
 		}
-		this.options.messages.appendAndEmit([resumeMessage], { type: "status", payload: { sessionId, status: "cancelled" } })
+		this.options.messages.appendAndEmit([stoppedMessage], { type: "status", payload: { sessionId, status: "cancelled" } })
+		this.options.setTurnPhase("idle")
 
 		await this.options.postStateToWebview()
 		Logger.log(`[SdkController] Task cancelled: ${sessionId}`)
@@ -290,17 +293,36 @@ export class SdkTaskControlCoordinator {
 		return historyItem
 	}
 
+	private conversationLooksCompleted(messages: ClineMessage[]): boolean {
+		// Prefer an explicit completion row (attempt_completion / retagged final text).
+		// Walk from the end, skipping resume asks and trailing api_req bookkeeping.
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i]
+			if (message.ask === "resume_task" || message.ask === "resume_completed_task") {
+				continue
+			}
+			if (message.say === "api_req_started" || message.say === "api_req_finished") {
+				continue
+			}
+			if (
+				message.say === "completion_result" ||
+				message.say === "plan_completion_result" ||
+				message.ask === "completion_result"
+			) {
+				return true
+			}
+			return false
+		}
+		return false
+	}
+
 	private appendFreshResumeMessage(messages: ClineMessage[], sessionStatus?: string): ClineMessage[] {
-		// The persisted session status is the only reliable completion signal:
-		// SDK conversations do not record a completion tool call in the
-		// transcript (a completed turn and a turn interrupted mid-stream both
-		// end with plain assistant text), and history rendering appends a
-		// synthetic trailing ask:"completion_result" either way, so the message
-		// tail cannot be used. When the status is unknown (e.g. a transient
-		// read failure), default to the Resume affordance: resuming a completed
-		// task is harmless, while hiding Resume on an interrupted one is the
-		// data-loss illusion this exists to prevent.
-		const resumeAsk = sessionStatus === "completed" ? "resume_completed_task" : "resume_task"
+		// Prefer the persisted session status, but also treat an explicit green
+		// completion row in the transcript as finished — otherwise Orvanta's
+		// auto-resume re-runs an agent that already completed (status often
+		// stays "idle" after attempt_completion until the session is released).
+		const completed = sessionStatus === "completed" || this.conversationLooksCompleted(messages)
+		const resumeAsk = completed ? "resume_completed_task" : "resume_task"
 		const cleanedMessages = messages.filter((m) => m.ask !== "resume_task" && m.ask !== "resume_completed_task")
 		cleanedMessages.push({
 			ts: Date.now(),

@@ -19,7 +19,8 @@ const OrvantaShell = ({ activeTab: rawActiveTab, onTabChange, inboxFocusId: prop
 	const activeTab: OrvantaTab =
 		rawActiveTab === "chat" || rawActiveTab === "war-room" ? "console" : (rawActiveTab as OrvantaTab)
 
-	const { company, loading, creating, createError, createCompany, saveAgentProfile, deleteAgentProfile } = useOrvantaCompany()
+	const { company, agentProfiles, loading, creating, createError, createCompany, saveAgentProfile, deleteAgentProfile } =
+		useOrvantaCompany()
 
 	const {
 		pending,
@@ -117,6 +118,7 @@ const OrvantaShell = ({ activeTab: rawActiveTab, onTabChange, inboxFocusId: prop
 				<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 					{activeTab === "home" && (
 						<HomeView
+							agentProfiles={agentProfiles}
 							company={company}
 							createError={createError}
 							creating={creating}
@@ -138,6 +140,7 @@ const OrvantaShell = ({ activeTab: rawActiveTab, onTabChange, inboxFocusId: prop
 							company={company}
 							onDeleteAgentProfile={deleteAgentProfile}
 							onSaveAgentProfile={saveAgentProfile}
+							profiles={agentProfiles}
 						/>
 					)}
 					{activeTab === "inbox" && (

@@ -49,6 +49,8 @@ describe("SdkInteractionCoordinator", () => {
 		expect(clineMessages).toHaveLength(1)
 		expect(clineMessages[0].type).toBe("ask")
 		expect(clineMessages[0].ask).toBe("tool")
+		expect(clineMessages[0].agentId).toBe("agent")
+		expect(clineMessages[0].agent_id).toBe("agent")
 		expect(JSON.parse(clineMessages[0].text || "{}")).toMatchObject({ tool: "readFile", path: "README.md" })
 		expect(listener).toHaveBeenCalledOnce()
 

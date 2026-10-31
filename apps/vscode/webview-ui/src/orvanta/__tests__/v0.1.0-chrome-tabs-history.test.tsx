@@ -24,6 +24,7 @@ vi.mock("@/services/grpc-client", () => ({
 				{ id: "implementer", displayName: "Frontend Developer", role: "teammate", status: "idle" },
 			],
 		}),
+		listCeoSessions: vi.fn().mockResolvedValue({ success: true, status: "ready", sessions: [] }),
 		subscribeCompany: vi.fn().mockReturnValue(vi.fn()),
 	},
 }))

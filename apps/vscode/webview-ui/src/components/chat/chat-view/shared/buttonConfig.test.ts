@@ -110,7 +110,7 @@ describe("getButtonConfig", () => {
 			{ ask: "use_subagents", expectedConfig: "use_subagents" },
 			{ ask: "plan_mode_respond", expectedConfig: "plan_mode_respond" },
 			{ ask: "completion_result", expectedConfig: "completion_result" },
-			{ ask: "resume_task", expectedConfig: "resume_task" },
+			{ ask: "resume_task", expectedConfig: "default" },
 			{ ask: "resume_completed_task", expectedConfig: "resume_completed_task" },
 			{ ask: "new_task", expectedConfig: "new_task" },
 			{ ask: "condense", expectedConfig: "condense" },
@@ -203,10 +203,10 @@ describe("buttonsForPhase (TurnState-driven)", () => {
 		expect(buttonsForPhase(ts("idle"), undefined)).toEqual(BUTTON_CONFIGS.default)
 		expect(buttonsForPhase(ts("streaming"), undefined)).toEqual(BUTTON_CONFIGS.partial)
 		expect(buttonsForPhase(ts("completed"), undefined)).toEqual(BUTTON_CONFIGS.completion_result)
-		expect(buttonsForPhase(ts("resumable"), undefined)).toEqual(BUTTON_CONFIGS.resume_task)
+		expect(buttonsForPhase(ts("resumable"), undefined)).toEqual(BUTTON_CONFIGS.default)
 		expect(buttonsForPhase(ts("error"), undefined)).toEqual(BUTTON_CONFIGS.api_req_failed)
 		expect(buttonsForPhase(ts("awaiting_followup"), undefined)).toEqual(BUTTON_CONFIGS.followup)
-		expect(buttonsForPhase(ts("awaiting_approval"), undefined)).toEqual(BUTTON_CONFIGS.tool_approve)
+		expect(buttonsForPhase(ts("awaiting_approval"), undefined)).toEqual(BUTTON_CONFIGS.default)
 	})
 
 	it("uses the anchored message to pick approval labels (Save vs Approve, command, mcp)", () => {

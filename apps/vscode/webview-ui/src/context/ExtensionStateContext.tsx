@@ -456,12 +456,18 @@ export const ExtensionStateContextProvider: React.FC<{
 							// merge by ts/seq within the same epoch (never truncate), replace on a
 							// newer epoch, ignore stale/older snapshots. Unstamped (classic/legacy)
 							// state defaults to epoch 0 / version 0, which merges.
+							// [+] / clearTask: no currentTaskItem + empty transcript is an
+							// authoritative blank session — idleClear wipes the replica so the
+							// previous tab's history cannot keep painting on the new tab.
+							const incomingMessages = stateData.clineMessages ?? []
+							const idleClear = !stateData.currentTaskItem && incomingMessages.length === 0
 							replicaRef.current = reducerApplyStateSnapshot(
 								replicaRef.current,
-								stateData.clineMessages ?? [],
+								incomingMessages,
 								stateData.epoch ?? 0,
 								stateData.stateVersion ?? 0,
 								stateData.turnState,
+								idleClear ? { idleClear: true } : undefined,
 							)
 							stateData.clineMessages = replicaRef.current.messages
 							// Use the seq-gated turnState from the replica, NOT the raw snapshot's, so a

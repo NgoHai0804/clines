@@ -177,6 +177,9 @@ export const AgentEditor = ({
 	const [autoApproval, setAutoApproval] = useState<AgentAutoApproval>(parseInitialAutoApproval)
 	const [agentMcpServers, setAgentMcpServers] = useState<string[]>(initialProfile.mcpServers ?? [])
 
+	// Remount already happens when agent id / new|edit changes (`key` in AgentsView).
+	// Do NOT reset on every `initialProfile` reference churn from parent re-renders
+	// (company/state push) — that flips Auto-Approve and other edits back off mid-edit.
 	useEffect(() => {
 		setId(initialProfile.id)
 		setDisplayName(initialProfile.displayName)
@@ -212,7 +215,8 @@ export const AgentEditor = ({
 		)
 		setAutoApproval(parseInitialAutoApproval())
 		setAgentMcpServers(initialProfile.mcpServers ?? [])
-	}, [initialProfile, isCoordinator])
+		// biome-ignore lint/correctness/useExhaustiveDependencies: only re-hydrate when switching agent / new vs edit — not on parent profile reference churn
+	}, [initialProfile.id, isNew, isCoordinator])
 
 	const [error, setError] = useState<string | undefined>()
 	const [saving, setSaving] = useState(false)

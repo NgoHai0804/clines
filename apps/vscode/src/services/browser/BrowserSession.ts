@@ -8,14 +8,18 @@ import * as chromeLauncher from "chrome-launcher"
 import os from "os"
 import pWaitFor from "p-wait-for"
 import * as path from "path"
-// @ts-ignore
-import type { LoggerMessage, ScreenshotOptions } from "puppeteer-core"
-import { Browser, connect, launch, Page, TimeoutError } from "puppeteer-core"
+import type { Browser, ConsoleMessage, Page, ScreenshotOptions } from "puppeteer-core"
 import { StateManager } from "@/core/storage/StateManager"
 import { telemetryService } from "@/services/telemetry"
 import { Logger } from "@/shared/services/Logger"
+import { loadLazyChunk } from "@/utils/load-lazy-chunk"
 import { discoverChromeInstances, isPortOpen, testBrowserConnection } from "./BrowserDiscovery"
+import type * as LazyBrowser from "./lazy-browser"
 import { ensureChromiumExists } from "./utils"
+
+function getLazyBrowser(): typeof LazyBrowser {
+	return loadLazyChunk<typeof LazyBrowser>("browser")
+}
 
 // Define browser connection info interface
 export interface BrowserConnectionInfo {
@@ -213,7 +217,7 @@ export class BrowserSession {
 		const browserSettings = this.stateManager.getGlobalSettingsKey("browserSettings")
 		const { path } = await this.getDetectedChromePath()
 		const userArgs = splitArgs(browserSettings.customArgs)
-		this.browser = await launch({
+		this.browser = await getLazyBrowser().launch({
 			args: [
 				"--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
 				...userArgs,
@@ -254,7 +258,7 @@ export class BrowserSession {
 		if (browserWSEndpoint && Date.now() - this.lastConnectionAttempt < 3600000) {
 			try {
 				Logger.info(`Attempting to connect using cached WebSocket endpoint: ${browserWSEndpoint}`)
-				this.browser = await connect({
+				this.browser = await getLazyBrowser().connect({
 					browserWSEndpoint,
 					defaultViewport: getViewport(),
 				})
@@ -306,7 +310,7 @@ export class BrowserSession {
 				this.cachedWebSocketEndpoint = browserWSEndpoint
 				this.lastConnectionAttempt = Date.now()
 
-				this.browser = await connect({
+				this.browser = await getLazyBrowser().connect({
 					browserWSEndpoint,
 					defaultViewport: getViewport(),
 				})
@@ -385,7 +389,7 @@ export class BrowserSession {
 		const logs: string[] = []
 		let lastLogTs = Date.now()
 
-		const LoggerListener = (msg: LoggerMessage) => {
+		const consoleListener = (msg: ConsoleMessage) => {
 			if (msg.type() === "log") {
 				logs.push(msg.text())
 			} else {
@@ -400,7 +404,7 @@ export class BrowserSession {
 		}
 
 		// Add the listeners
-		this.page.on("Logger", LoggerListener)
+		this.page.on("console", consoleListener)
 		this.page.on("pageerror", errorListener)
 
 		try {
@@ -408,7 +412,7 @@ export class BrowserSession {
 		} catch (err) {
 			const errorMessage = err instanceof Error ? err.message : String(err)
 
-			if (!(err instanceof TimeoutError)) {
+			if (!(err instanceof getLazyBrowser().TimeoutError)) {
 				logs.push(`[Error] ${errorMessage}`)
 
 				// Capture error telemetry
@@ -467,7 +471,7 @@ export class BrowserSession {
 		}
 
 		// this.page.removeAllListeners() <- causes the page to crash!
-		this.page.off("Logger", LoggerListener)
+		this.page.off("console", consoleListener)
 		this.page.off("pageerror", errorListener)
 
 		return {

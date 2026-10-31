@@ -139,6 +139,8 @@ export {
 	type PurposeLockCheckResult,
 	type CheckPurposeLockOptions,
 	checkToolPolicy,
+	COORDINATION_TOOL_NAMES,
+	isCoordinationTool,
 	type ToolPolicyOptions,
 	type ToolPolicyCheckResult,
 	type CheckToolPolicyOptions,
@@ -167,6 +169,7 @@ export {
 	removeAgent,
 	createCompany,
 	loadCompany,
+	loadCompanyReadOnly,
 	pathExists,
 	pickWorkspaceRoot,
 	deleteCompany,
@@ -289,6 +292,7 @@ export {
 	createOrvantaSubmitHandoffTool,
 	OrvantaSubmitHandoffInputSchema,
 	type OrvantaSubmitHandoffInput,
+	type SubmitHandoffSubmittedInfo,
 	type SubmitHandoffToolOutput,
 } from "./submit-handoff-tool";
 

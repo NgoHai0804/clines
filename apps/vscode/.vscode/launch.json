@@ -2,6 +2,35 @@
 	"version": "0.2.0",
 	"configurations": [
 		{
+			"name": "Run Extension (Fast — no source maps)",
+			"type": "extensionHost",
+			"request": "launch",
+			"args": [
+				"--extensionDevelopmentPath=${workspaceFolder}",
+				"--disable-workspace-trust",
+				"--disable-extension",
+				"saoudrizwan.claude-dev",
+				"--disable-extension",
+				"saoudrizwan.cline-nightly",
+				"--disable-extension",
+				"oven.bun-vscode",
+				"D:/TEST"
+			],
+			"sourceMaps": false,
+			"outFiles": [
+				"${workspaceFolder}/dist/extension.js",
+				"${workspaceFolder}/dist/lazy/**/*.js"
+			],
+			"envFile": "${workspaceFolder}/.env",
+			"env": {
+				"IS_DEV": "true",
+				"USE_BUNDLED_WEBVIEW": "true",
+				"DEV_WORKSPACE_FOLDER": "${workspaceFolder}",
+				"CLINE_ENVIRONMENT": "local",
+				"CLINE_DIR": "${userHome}/.cline_local"
+			}
+		},
+		{
 			"name": "Run Extension (Bundled Webview - Chắc Chắn Hiện UI)",
 			"type": "extensionHost",
 			"request": "launch",
@@ -14,10 +43,15 @@
 				"saoudrizwan.cline-nightly",
 				"--disable-extension",
 				"oven.bun-vscode",
-				"${workspaceFolder}"
+				"D:/TEST"
 			],
 			"outFiles": [
-				"${workspaceFolder}/dist/**/*.js"
+				"${workspaceFolder}/dist/extension.js",
+				"${workspaceFolder}/dist/lazy/**/*.js"
+			],
+			"resolveSourceMapLocations": [
+				"${workspaceFolder}/dist/**",
+				"!**/node_modules/**"
 			],
 			"envFile": "${workspaceFolder}/.env",
 			"env": {
@@ -41,10 +75,15 @@
 				"saoudrizwan.cline-nightly",
 				"--disable-extension",
 				"oven.bun-vscode",
-				"${workspaceFolder}"
+				"D:/TEST"
 			],
 			"outFiles": [
-				"${workspaceFolder}/dist/**/*.js"
+				"${workspaceFolder}/dist/extension.js",
+				"${workspaceFolder}/dist/lazy/**/*.js"
+			],
+			"resolveSourceMapLocations": [
+				"${workspaceFolder}/dist/**",
+				"!**/node_modules/**"
 			],
 			"preLaunchTask": "${defaultBuildTask}",
 			"envFile": "${workspaceFolder}/.env",
@@ -68,10 +107,15 @@
 				"saoudrizwan.cline-nightly",
 				"--disable-extension",
 				"oven.bun-vscode",
-				"${workspaceFolder}"
+				"D:/TEST"
 			],
 			"outFiles": [
-				"${workspaceFolder}/dist/**/*.js"
+				"${workspaceFolder}/dist/extension.js",
+				"${workspaceFolder}/dist/lazy/**/*.js"
+			],
+			"resolveSourceMapLocations": [
+				"${workspaceFolder}/dist/**",
+				"!**/node_modules/**"
 			],
 			"envFile": "${workspaceFolder}/.env",
 			"env": {

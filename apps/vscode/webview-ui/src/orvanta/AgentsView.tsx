@@ -78,7 +78,18 @@ export function createTemplateProfile(templateKey: string, parentId: string, exi
 			description: "Hiện thực hóa mã nguồn, giải quyết tính năng và sửa lỗi",
 			instructions:
 				"## Trách nhiệm chính\n- Viết mã nguồn chất lượng cao theo đặc tả\n- Tuân thủ coding guidelines và conventions",
-			tools: { allow: ["read_files", "edit_file", "new_file", "list_files"], deny: [] },
+			tools: {
+				allow: [
+					"read_files",
+					"edit_file",
+					"new_file",
+					"list_files",
+					"team_send_message",
+					"team_read_mailbox",
+					"orvanta_submit_handoff",
+				],
+				deny: [],
+			},
 		},
 		reviewer: {
 			displayName: "Code Reviewer",
@@ -86,14 +97,34 @@ export function createTemplateProfile(templateKey: string, parentId: string, exi
 			description: "Đánh giá chất lượng mã nguồn, phát hiện bug, bảo mật và logic",
 			instructions:
 				"## Trách nhiệm chính\n- Rà soát mã nguồn kỹ lưỡng trước khi merge\n- Đảm bảo tuân thủ tiêu chuẩn chất lượng",
-			tools: { allow: ["read_files", "search_files", "list_files"], deny: ["edit_file", "new_file"] },
+			tools: {
+				allow: [
+					"read_files",
+					"search_files",
+					"list_files",
+					"team_send_message",
+					"team_read_mailbox",
+					"orvanta_submit_handoff",
+				],
+				deny: ["edit_file", "new_file"],
+			},
 		},
 		researcher: {
 			displayName: "Tech Researcher",
 			role: "teammate",
 			description: "Tìm kiếm thông tin, giải pháp kỹ thuật, nghiên cứu tài liệu",
 			instructions: "## Trách nhiệm chính\n- Khảo sát tài liệu kỹ thuật\n- Đánh giá các thư viện và giải pháp kiến trúc",
-			tools: { allow: ["read_files", "fetch_web_content", "fetch_web_search"], deny: ["edit_file", "new_file"] },
+			tools: {
+				allow: [
+					"read_files",
+					"fetch_web_content",
+					"fetch_web_search",
+					"team_send_message",
+					"team_read_mailbox",
+					"orvanta_submit_handoff",
+				],
+				deny: ["edit_file", "new_file"],
+			},
 		},
 		skeptic: {
 			displayName: "Critical Skeptic",
@@ -101,14 +132,34 @@ export function createTemplateProfile(templateKey: string, parentId: string, exi
 			description: "Phản biện kiến trúc, phát hiện edge cases và rủi ro tiềm ẩn",
 			instructions:
 				"## Trách nhiệm chính\n- Đặt câu hỏi phản biện về thiết kế hệ thống\n- Tìm kiếm các điểm nghẽn và rủi ro",
-			tools: { allow: ["read_files", "search_files", "search_codebase"], deny: ["edit_file", "new_file"] },
+			tools: {
+				allow: [
+					"read_files",
+					"search_files",
+					"search_codebase",
+					"team_send_message",
+					"team_read_mailbox",
+					"orvanta_submit_handoff",
+				],
+				deny: ["edit_file", "new_file"],
+			},
 		},
 		blank: {
 			displayName: "New Agent",
 			role: "teammate",
 			description: "Mô tả nhiệm vụ agent mới",
 			instructions: "## Hướng dẫn hoạt động\n- Nhập hướng dẫn cho agent tại đây",
-			tools: { allow: ["read_files", "edit_file", "new_file"], deny: [] },
+			tools: {
+				allow: [
+					"read_files",
+					"edit_file",
+					"new_file",
+					"team_send_message",
+					"team_read_mailbox",
+					"orvanta_submit_handoff",
+				],
+				deny: [],
+			},
 		},
 	}
 
@@ -364,7 +415,8 @@ const AgentsView = ({
 						initialProfile={activeProfile}
 						isCoordinator={isCoordinator}
 						isNew={isNew}
-						key={`${activeProfile.id}-${isNew ? "new" : "edit"}`}
+						// Remount when disk profile arrives (stub → real) so editor doesn't keep empty defaults.
+						key={`${activeProfile.id}-${isNew ? "new" : "edit"}-${profilesMap[activeProfile.id] ? "disk" : "stub"}`}
 						onChatWithAgent={onChatWithAgent}
 						onClose={() => setNewProfileDraft(null)}
 						onDelete={isNew ? undefined : handleDelete}

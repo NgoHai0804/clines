@@ -36,10 +36,12 @@ export const BUTTON_CONFIGS: Record<string, ButtonConfig> = {
 		secondaryAction: undefined,
 	},
 	cloud_creation_unconfirmed: {
-		sendingDisabled: false,
-		enableButtons: false,
-		primaryText: undefined,
-		primaryAction: undefined,
+		sendingDisabled: true,
+		enableButtons: true,
+		primaryText: "Start New Task",
+		secondaryText: undefined,
+		primaryAction: "new_task",
+		secondaryAction: undefined,
 	},
 	mistake_limit_reached: {
 		sendingDisabled: false,
@@ -293,7 +295,8 @@ export function getButtonConfig(message: ClineMessage | undefined, _mode: Mode =
 			case "completion_result":
 				return BUTTON_CONFIGS.completion_result
 			case "resume_task":
-				return BUTTON_CONFIGS.resume_task
+				// Hidden — ChatView auto-resumes interrupted sessions; Cancel no longer emits this ask.
+				return BUTTON_CONFIGS.default
 			case "resume_completed_task":
 				return BUTTON_CONFIGS.resume_completed_task
 			case "new_task":
@@ -384,7 +387,9 @@ export function buttonsForPhase(
 		case "completed":
 			return BUTTON_CONFIGS.completion_result
 		case "resumable":
-			return BUTTON_CONFIGS.resume_task
+			// Orvanta: never show Resume Task. Unexpected interrupts auto-resume in ChatView;
+			// Cancel leaves idle with a "đã dừng" notice instead of this phase.
+			return BUTTON_CONFIGS.default
 		case "error":
 			if (
 				anchoredMessage?.type === "ask" &&
@@ -398,9 +403,10 @@ export function buttonsForPhase(
 			// anchored message is a recognized ask, defer to its config for correct labels.)
 			return anchoredMessage ? getButtonConfig(anchoredMessage, "act") : BUTTON_CONFIGS.followup
 		case "awaiting_approval":
-			// Approve/Reject (or Run Command / Save / etc.) — driven by the anchored ask so the
-			// labels match the tool kind. Falls back to generic tool approval.
-			return anchoredMessage ? getButtonConfig(anchoredMessage, "act") : BUTTON_CONFIGS.tool_approve
+			// Approve/Reject only when the anchored ask is in the current Agent channel.
+			// If the ask belongs to another Agent (filtered out), hide buttons here — the
+			// Console toast routes the user to that Agent instead of approving on the wrong channel.
+			return anchoredMessage ? getButtonConfig(anchoredMessage, "act") : BUTTON_CONFIGS.default
 		default:
 			return BUTTON_CONFIGS.default
 	}

@@ -18,11 +18,27 @@ export interface SubmitHandoffToolOutput {
 	ok: boolean;
 	path?: string;
 	error?: string;
+	taskCompleted?: boolean;
+}
+
+export interface SubmitHandoffSubmittedInfo {
+	taskId: string;
+	content: string;
+	requesterId: string;
+	path: string;
 }
 
 export function createOrvantaSubmitHandoffTool(options: {
 	workspaceRoot: string;
 	requesterId?: string;
+	/**
+	 * Host hook after the handoff file is written. Use to mark the team task
+	 * Completed and notify the Coordinator. Must not throw for missing tasks —
+	 * callers should soft-fail so ad-hoc taskIds still deliver the report.
+	 */
+	onSubmitted?: (
+		info: SubmitHandoffSubmittedInfo,
+	) => void | Promise<{ taskCompleted?: boolean } | void>;
 }) {
 	return createTool<
 		typeof OrvantaSubmitHandoffInputSchema,
@@ -30,7 +46,7 @@ export function createOrvantaSubmitHandoffTool(options: {
 	>({
 		name: "orvanta_submit_handoff",
 		description:
-			"Nộp bài bàn giao kết quả (handoff) cho task. Host ghi vào .orvanta/shared/handoffs/<taskId>/<requesterId>.md. Đặt toàn bộ báo cáo vào content. Gọi thành công sẽ kết thúc lượt — không viết thêm tin chat và không gọi submit_and_exit.",
+			"Hoàn thành task đã được giao: nộp kết quả (handoff). Hệ thống ghi vào .orvanta/shared/handoffs/<taskId>/<requesterId>.md, đánh dấu task Completed (nếu có), và gửi báo cáo về Coordinator. Đặt toàn bộ kết quả vào content. Gọi thành công sẽ kết thúc lượt — không viết thêm tin chat và không gọi submit_and_exit. Với tin nhắn nhanh / kiểm tra tình trạng (không phải phiếu task), dùng team_send_message thay thế.",
 		inputSchema: OrvantaSubmitHandoffInputSchema,
 		lifecycle: { completesRun: true },
 		execute: async (input) => {
@@ -48,7 +64,19 @@ export function createOrvantaSubmitHandoffTool(options: {
 				const fullPath = join(options.workspaceRoot, relPath);
 				await mkdir(dirname(fullPath), { recursive: true });
 				await writeFile(fullPath, input.content, "utf8");
-				return { ok: true, path: relPath };
+
+				let taskCompleted = false;
+				if (options.onSubmitted) {
+					const hookResult = await options.onSubmitted({
+						taskId: input.taskId,
+						content: input.content,
+						requesterId,
+						path: relPath,
+					});
+					taskCompleted = Boolean(hookResult?.taskCompleted);
+				}
+
+				return { ok: true, path: relPath, taskCompleted };
 			} catch (err: any) {
 				return { ok: false, error: err?.message || String(err) };
 			}

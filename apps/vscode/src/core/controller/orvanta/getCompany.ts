@@ -1,14 +1,17 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
-import { WORKSPACE_DIRNAME } from "@cline/shared"
+import { loadCompanyReadOnly, WORKSPACE_DIRNAME } from "@cline/shared"
 import { EmptyRequest } from "@shared/proto/cline/common"
 import { OrvantaCompanyResponse } from "@shared/proto/cline/orvanta"
 import { resolveOrvantaWorkspaceRoot } from "@/orvanta/resolve-workspace"
 import { globalTeamStatusTracker } from "@/orvanta/team-status-tracker"
 import { toCompanyResponse } from "@/orvanta/to-company-response"
-import { loadCompany } from "@/orvanta/workspace-store"
 import type { Controller } from ".."
 
+/**
+ * Read-only snapshot for UI. Avoids the roster writer lock (stale .lock files
+ * previously made Home hang until the 12s webview timeout).
+ */
 export async function getCompany(_controller: Controller, _request: EmptyRequest): Promise<OrvantaCompanyResponse> {
 	const root = await resolveOrvantaWorkspaceRoot()
 	if (!root) {
@@ -21,5 +24,5 @@ export async function getCompany(_controller: Controller, _request: EmptyRequest
 	} catch {
 		// optional tasks.json
 	}
-	return toCompanyResponse(await loadCompany(root), [], globalTeamStatusTracker.getRunningAgentIds(), tasksJson)
+	return toCompanyResponse(await loadCompanyReadOnly(root), [], globalTeamStatusTracker.getRunningAgentIds(), tasksJson)
 }

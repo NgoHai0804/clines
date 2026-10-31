@@ -114,17 +114,17 @@ export class SdkSessionEventCoordinator {
 				// are surfaced as the error phase. The webview reads this, not the array tail.
 				//
 				// EXCEPTION: a turn-complete from a turn that was cancelled (cancelTask set phase
-				// "resumable" and aborted) is a straggler. Overwriting it here would clobber
-				// "resumable" with "awaiting_followup"/"completed" and the footer would lose the
-				// Resume Task button (showing the scroll-arrow default instead), so the cancel-set
-				// phase is preserved. Check the phase itself, not just isRunning: when the SDK
-				// drains a queued prompt at turn end, the PREVIOUS turn's send promise settles
-				// after the new turn already started and its completion bookkeeping flips
-				// isRunning back to false mid-turn (see fireAndForgetSend). Keying on isRunning
-				// alone made the queued turn's real completion look like this straggler, leaving
-				// the phase stuck on "streaming" (endless Thinking).
-				if (!activeSession.isRunning && this.options.getTurnPhase?.() === "resumable") {
-					Logger.debug("[SdkController] turn-complete straggler after cancel; preserving resumable phase")
+				// "idle"/"resumable" and aborted) is a straggler. Overwriting it here would clobber
+				// the cancel-set phase with "awaiting_followup"/"completed". Check the phase
+				// itself, not just isRunning: when the SDK drains a queued prompt at turn end,
+				// the PREVIOUS turn's send promise settles after the new turn already started
+				// and its completion bookkeeping flips isRunning back to false mid-turn (see
+				// fireAndForgetSend). Keying on isRunning alone made the queued turn's real
+				// completion look like this straggler, leaving the phase stuck on "streaming"
+				// (endless Thinking).
+				const phaseAfterCancel = this.options.getTurnPhase?.()
+				if (!activeSession.isRunning && (phaseAfterCancel === "resumable" || phaseAfterCancel === "idle")) {
+					Logger.debug(`[SdkController] turn-complete straggler after cancel; preserving ${phaseAfterCancel} phase`)
 				} else if (this.options.messageTranslatorState.wasErrorSeen()) {
 					// The turn surfaced a provider error (ask:"api_req_failed" was emitted) —
 					// offer error recovery (Retry / Start New Task), not the followup state.

@@ -203,31 +203,61 @@ export function useMessageHandlers(
 
 				// If sending to a specific teammate agent (not Coordinator / Lead), route via Orvanta direct steer
 				if (focusAgent && focusAgent.id !== "coordinator" && focusAgent.role !== "lead") {
-					clearSentMessageState()
-					const { id, optimisticMessage } = beginPendingResponse({
-						ts: Date.now(),
-						type: "say",
-						say: "user_feedback",
-						text: `[Chỉ đạo 1:1 @${focusAgent.id}]: ${messageToSend}`,
-						images: submittedImages,
-						files: submittedFiles,
-						partial: false,
-						agentId: focusAgent.id,
-						agentDisplayName: focusAgent.displayName,
-						agentRole: focusAgent.role,
+					// Show the CEO bubble immediately so the channel always reflects the attempt.
+					// Clear the composer only after a successful RPC (failed sends keep the draft).
+					// ts must stay in the minter id space (max existing + 1), never Date.now() —
+					// wall-clock ids sort after every agent row and flip CEO ↔ agent order.
+					const afterTs = Math.max(0, ...messages.map((message) => message.ts))
+					const optimisticTs = afterTs + 1
+					setPendingUserMessage({
+						afterTs,
+						message: {
+							ts: optimisticTs,
+							type: "say",
+							say: "user_feedback",
+							text: messageToSend,
+							images: submittedImages,
+							files: submittedFiles,
+							partial: false,
+							agentId: focusAgent.id,
+							agentDisplayName: focusAgent.displayName,
+							agentRole: focusAgent.role,
+						},
 					})
 					try {
-						await OrvantaServiceClient.sendAgentDirectMessage(
+						const resp = await OrvantaServiceClient.sendAgentDirectMessage(
 							OrvantaSendAgentDirectMessageRequest.create({
 								agentId: focusAgent.id,
 								message: messageToSend,
 								subject: `Chỉ đạo từ CEO tới ${focusAgent.displayName || focusAgent.id}`,
 							}),
 						)
+						if (!resp.success) {
+							throw new Error(resp.error || "Failed to send direct message")
+						}
+						clearSentMessageState()
+						setSendingDisabled(false)
+						setEnableButtons(false)
 					} catch (err) {
-						rollbackPendingResponse(id, optimisticMessage)
-						restorePendingMessageState()
 						console.error("Failed to send direct message to agent:", err)
+						const detail = err instanceof Error ? err.message : String(err)
+						// window.alert is unreliable in the VS Code webview — surface the error
+						// on the agent channel instead, and keep the typed draft.
+						setPendingUserMessage({
+							afterTs,
+							message: {
+								ts: optimisticTs,
+								type: "say",
+								say: "error",
+								text: `Không gửi được chỉ đạo 1:1 tới ${focusAgent.displayName || focusAgent.id}: ${detail}`,
+								partial: false,
+								agentId: focusAgent.id,
+								agentDisplayName: focusAgent.displayName,
+								agentRole: focusAgent.role,
+							},
+						})
+						setSendingDisabled(false)
+						setEnableButtons(false)
 					}
 					return
 				}
@@ -476,6 +506,7 @@ export function useMessageHandlers(
 			chatState,
 			cloudSessionsEnabled,
 			cloudTaskTarget,
+			focusAgent,
 		],
 	)
 

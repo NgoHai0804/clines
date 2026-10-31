@@ -124,6 +124,51 @@ describe("AgentsView", () => {
 		expect(screen.getByPlaceholderText("Tên agent")).toHaveValue("Coordinator")
 	})
 
+	it("loads disk profile fields into the editor instead of roster stubs", () => {
+		const protoCompany: OrvantaCompanyResponse = {
+			status: "ready",
+			errors: [],
+			id: "co-1",
+			name: "Acme",
+			purpose: "Build",
+			teamName: "Core",
+			agents: [
+				{
+					id: "coordinator",
+					displayName: "Coordinator",
+					role: "lead",
+					status: "idle",
+				},
+				{
+					id: "implementer",
+					displayName: "Dave",
+					role: "teammate",
+					status: "idle",
+					reportsTo: "coordinator",
+				},
+			],
+			tasksJson: "",
+		}
+		const profiles = {
+			implementer: OrvantaAgentProfile.create({
+				id: "implementer",
+				displayName: "Dave Saved",
+				role: "teammate",
+				description: "from disk",
+				instructions: "Persisted instructions from profile.md",
+				filePath: "org/agents/implementer/profile.md",
+				modelId: "claude-sonnet-4",
+				maxIterations: 55,
+			}),
+		}
+
+		render(<AgentsView company={protoCompany} profiles={profiles} />)
+		fireEvent.click(screen.getByTestId("agent-node-implementer"))
+
+		expect(screen.getByPlaceholderText("Tên agent")).toHaveValue("Dave Saved")
+		expect(screen.getByTestId("profile-instructions-textarea")).toHaveValue("Persisted instructions from profile.md")
+	})
+
 	it("clamps the split so the editor never collapses below its minimum", () => {
 		const container = 800
 		const maxTree = container - AGENTS_SPLIT_DIVIDER - AGENTS_SPLIT_MIN_EDITOR

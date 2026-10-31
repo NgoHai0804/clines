@@ -661,9 +661,15 @@ export class SdkTaskHistory {
 		if (projectRoots && !sdkRecord) return []
 		const legacyTask = projectRoots ? undefined : this.findLegacyTask(taskId)
 		const workspaceRoot = sdkRecord?.cwd || sdkRecord?.workspaceRoot || legacyTask?.item.cwdOnTaskInitialization
-		if (sdkRecord && workspaceRoot && !projectRoots) {
+		// Prefer the Orvanta display transcript when it carries teammate attribution.
+		// Multi-agent tool history is stamped into ui_messages.json during the live
+		// session; SDK readMessages(taskId) only returns the coordinator session file
+		// and drops Agent work (stored in separate *__canonical.messages.json files).
+		// Must run for project-scoped workspaces too — that is the normal Orvanta path.
+		const displayTranscriptRoot = selectedWorkspace || workspaceRoot
+		if (displayTranscriptRoot) {
 			try {
-				const persistedDisplayMessages = await loadWorkspaceTaskMessages<ClineMessage>(workspaceRoot, taskId)
+				const persistedDisplayMessages = await loadWorkspaceTaskMessages<ClineMessage>(displayTranscriptRoot, taskId)
 				// Only trust the display artifact as the richer source when it contains
 				// teammate attribution. Older cache files may be Coordinator-only and
 				// must not hide the SDK transcript for non-Orvanta sessions.

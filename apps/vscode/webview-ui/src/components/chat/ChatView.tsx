@@ -4,13 +4,14 @@ import { combineHookSequences } from "@shared/combineHookSequences"
 import { getApiMetrics, getLastApiReqTotalTokens } from "@shared/getApiMetrics"
 import { BooleanRequest, StringRequest } from "@shared/proto/cline/common"
 import type { OrvantaRosterAgent } from "@shared/proto/cline/orvanta"
+import { AskResponseRequest } from "@shared/proto/cline/task"
 import { useCallback, useEffect, useMemo, useRef } from "react"
 import { useMount } from "react-use"
 import { AgentBadge } from "@/components/common/AgentBadge"
 import { useExtensionState } from "@/context/ExtensionStateContext"
 import { useShowNavbar } from "@/context/PlatformContext"
 import { useNormalizedApiConfiguration } from "@/hooks/useNormalizedApiConfiguration"
-import { FileServiceClient, UiServiceClient } from "@/services/grpc-client"
+import { FileServiceClient, TaskServiceClient, UiServiceClient } from "@/services/grpc-client"
 import { Navbar } from "../menu/Navbar"
 // Import utilities and hooks from the new structure
 import {
@@ -30,7 +31,8 @@ import {
 	useScrollBehavior,
 	WelcomeSection,
 } from "./chat-view"
-import { filterMessagesForAgentChannel } from "./chat-view/utils/filterAgentChannelMessages"
+import { filterMessagesForAgentChannel, resolveAgentChannelTaskHeader } from "./chat-view/utils/filterAgentChannelMessages"
+import { isAgentTurnFinished } from "./chat-view/utils/isAgentTurnFinished"
 import {
 	hasPendingMessageConfirmation,
 	isPendingResponseUnconfirmed,
@@ -48,6 +50,8 @@ interface ChatViewProps {
 	contextDecision?: { id: string; title: string }
 	onClearContextTask?: () => void
 	onClearContextDecision?: () => void
+	/** Viewing a reopened history/CEO session — teammate transcripts may lack agentId stamps. */
+	historyBrowse?: boolean
 }
 
 // Use constants from the imported module
@@ -65,6 +69,7 @@ const ChatView = ({
 	contextDecision,
 	onClearContextTask,
 	onClearContextDecision,
+	historyBrowse = false,
 }: ChatViewProps) => {
 	const showNavbar = useShowNavbar()
 	const {
@@ -108,14 +113,44 @@ const ChatView = ({
 
 	const displayMessages = useMemo(() => {
 		const raw = withPendingUserMessage(messages, pendingUserMessage)
-		return filterMessagesForAgentChannel(raw, selectedAgentId)
-	}, [messages, pendingUserMessage, selectedAgentId])
+		const filtered = filterMessagesForAgentChannel(raw, selectedAgentId, {
+			includeUnattributedForTeammate: historyBrowse,
+		})
+		// Stable chronological order — CEO 1:1 bubbles must stay above the agent replies
+		// they triggered even when pending/partial rows arrive out of sequence.
+		return filtered
+			.map((message, index) => ({ message, index }))
+			.sort((a, b) => a.message.ts - b.message.ts || a.index - b.index)
+			.map(({ message }) => message)
+	}, [messages, pendingUserMessage, selectedAgentId, historyBrowse])
 
 	useEffect(() => {
 		if (pendingUserMessage && hasPendingMessageConfirmation(messages, pendingUserMessage)) {
 			setPendingUserMessage((current) => (current === pendingUserMessage ? undefined : current))
 		}
 	}, [messages, pendingUserMessage, setPendingUserMessage])
+
+	// Orvanta: no Resume Task button. Unexpected interrupts (mode rebuild, history reopen)
+	// land in phase "resumable" — continue automatically once per turn seq.
+	// Never auto-rerun when the agent already finished (green COMPLETED); the user must
+	// send a new message to continue.
+	const autoResumedSeqRef = useRef<number | null>(null)
+	useEffect(() => {
+		if (isHidden || turnState?.phase !== "resumable") {
+			return
+		}
+		if (isAgentTurnFinished(messages)) {
+			return
+		}
+		const seq = turnState.seq ?? 0
+		if (autoResumedSeqRef.current === seq) {
+			return
+		}
+		autoResumedSeqRef.current = seq
+		void TaskServiceClient.askResponse(AskResponseRequest.create({ responseType: "yesButtonClicked" })).catch((err) =>
+			console.error("Failed to auto-resume interrupted task:", err),
+		)
+	}, [isHidden, turnState?.phase, turnState?.seq, messages])
 
 	useEffect(() => {
 		if (!pendingResponse || isPendingResponseUnconfirmed(pendingResponse, turnState, messages.length)) {
@@ -124,14 +159,28 @@ const ChatView = ({
 		setPendingResponse((current) => (current?.id === pendingResponse.id ? undefined : current))
 	}, [messages.length, pendingResponse, setPendingResponse, turnState])
 
-	//const task = messages.length > 0 ? (messages[0].say === "task" ? messages[0] : undefined) : undefined) : undefined
-	const task = useMemo(() => displayMessages.at(0), [displayMessages]) // leaving this less safe version here since if the first message is not a task, then the extension is in a bad state and needs to be debugged (see Cline.abort)
+	// Agent channels drop say:"task"; never promote a coordination tool's JSON into TaskHeader.
+	// When the first row is already a task/message card, suppress the duplicate TaskHeader bubble.
+	const { task, bodyStartIndex, suppressTaskHeader } = useMemo(
+		() => resolveAgentChannelTaskHeader(displayMessages),
+		[displayMessages],
+	)
+
+	// [+] / clearTask leaves ChatView mounted — drop optimistic CEO bubbles so the blank
+	// tab does not keep painting the previous session's pending steer. Only gate on an
+	// empty host transcript; placeholder task headers are still truthy objects.
+	useEffect(() => {
+		if (messages.length === 0) {
+			setPendingUserMessage(undefined)
+			setPendingResponse(undefined)
+		}
+	}, [messages.length, setPendingUserMessage, setPendingResponse])
 	const modifiedMessages = useMemo(() => {
-		const slicedMessages = displayMessages.slice(1)
+		const slicedMessages = displayMessages.slice(bodyStartIndex)
 		// Only combine hook sequences if hooks are enabled
 		const withHooks = hooksEnabled ? combineHookSequences(slicedMessages) : slicedMessages
 		return combineApiRequests(combineCommandSequences(withHooks))
-	}, [displayMessages, hooksEnabled])
+	}, [displayMessages, bodyStartIndex, hooksEnabled])
 	// has to be after api_req_finished are all reduced into api_req_started messages
 	const apiMetrics = useMemo(() => getApiMetrics(modifiedMessages), [modifiedMessages])
 
@@ -418,18 +467,9 @@ const ChatView = ({
 			{/* Chat Body: scrolls independently */}
 			<div className="flex-1 min-h-0 w-full overflow-hidden flex flex-col relative">
 				{showNavbar && <Navbar startNewTask={messageHandlers.startNewTask} />}
-				{task ? (
-					<TaskSection
-						apiMetrics={apiMetrics}
-						lastApiReqTotalTokens={lastApiReqTotalTokens}
-						messageHandlers={messageHandlers}
-						selectedModelInfo={{
-							supportsPromptCache: selectedModelInfo.supportsPromptCache,
-							supportsImages: selectedModelInfo.supportsImages || false,
-						}}
-						task={task}
-					/>
-				) : (
+				{task && !suppressTaskHeader ? (
+					<TaskSection apiMetrics={apiMetrics} messageHandlers={messageHandlers} task={task} />
+				) : !task ? (
 					<WelcomeSection
 						hideAnnouncement={hideAnnouncement}
 						isVisible={!isHidden}
@@ -440,7 +480,7 @@ const ChatView = ({
 						telemetrySetting={telemetrySetting}
 						version={version}
 					/>
-				)}
+				) : null}
 				{task && (
 					<MessagesArea
 						chatState={chatState}
@@ -476,7 +516,7 @@ const ChatView = ({
 				<ActionButtons
 					chatState={chatState}
 					messageHandlers={messageHandlers}
-					messages={messages}
+					messages={displayMessages}
 					mode={mode}
 					task={task}
 				/>
@@ -485,6 +525,20 @@ const ChatView = ({
 					chatState={chatState}
 					contextDecision={contextDecision}
 					contextTask={contextTask}
+					contextUsage={
+						task
+							? {
+									tokensIn: apiMetrics.totalTokensIn,
+									tokensOut: apiMetrics.totalTokensOut,
+									cacheWrites: apiMetrics.totalCacheWrites,
+									cacheReads: apiMetrics.totalCacheReads,
+									lastApiReqTotalTokens,
+									contextWindow: selectedModelInfo.contextWindow,
+									compactDisabled: messageHandlers.errorRecoveryAvailable,
+									compactTask: messageHandlers.compactTask,
+								}
+							: undefined
+					}
 					focusAgent={focusAgent}
 					messageHandlers={messageHandlers}
 					onClearContextDecision={onClearContextDecision}

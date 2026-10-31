@@ -31,6 +31,7 @@ vi.mock("./useOrvantaCompany", () => ({
 		loading: false,
 		creating: false,
 		createError: undefined,
+		agentProfiles: {},
 		createCompany: vi.fn(),
 		saveAgentProfile: vi.fn(),
 		deleteAgentProfile: vi.fn(),

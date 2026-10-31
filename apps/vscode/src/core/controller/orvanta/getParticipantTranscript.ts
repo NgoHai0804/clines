@@ -6,7 +6,8 @@ import type { SdkSessionLifecycle } from "@/sdk/sdk-session-lifecycle"
 import type { Controller } from ".."
 
 function getSessionLifecycle(controller: Controller): SdkSessionLifecycle | undefined {
-	const sessions = (controller as { sessions?: SdkSessionLifecycle }).sessions
+	// `sessions` is private on Controller; access via unknown for this Orvanta host bridge.
+	const sessions = (controller as unknown as { sessions?: SdkSessionLifecycle }).sessions
 	return sessions
 }
 

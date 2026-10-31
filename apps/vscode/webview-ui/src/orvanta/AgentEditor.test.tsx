@@ -794,4 +794,46 @@ describe("AgentEditor", () => {
 		// Max iterations
 		expect(screen.getByTestId("max-iterations-input")).toBeInTheDocument()
 	})
+
+	it("keeps Auto-Approve edits when parent re-renders the same agent with a new profile reference", () => {
+		const { rerender } = render(
+			<AgentEditor
+				defaultTab="tools"
+				existingIds={["coordinator", "implementer"]}
+				initialProfile={teammateProfile}
+				isCoordinator={false}
+				isNew={false}
+				onClose={vi.fn()}
+				onDelete={vi.fn()}
+				onSave={vi.fn()}
+			/>,
+		)
+
+		expect(screen.getByText("Cấu hình Tự động duyệt (Auto-Approve)")).toBeInTheDocument()
+		const toggle = document.querySelector('input.sr-only.peer[type="checkbox"]') as HTMLInputElement
+		expect(toggle).toBeTruthy()
+		expect(toggle.checked).toBe(false)
+		fireEvent.click(toggle)
+		expect(toggle.checked).toBe(true)
+
+		const churnedProfile = OrvantaAgentProfile.create({
+			...teammateProfile,
+			description: teammateProfile.description,
+		})
+		rerender(
+			<AgentEditor
+				defaultTab="tools"
+				existingIds={["coordinator", "implementer"]}
+				initialProfile={churnedProfile}
+				isCoordinator={false}
+				isNew={false}
+				onClose={vi.fn()}
+				onDelete={vi.fn()}
+				onSave={vi.fn()}
+			/>,
+		)
+
+		const toggleAfter = document.querySelector('input.sr-only.peer[type="checkbox"]') as HTMLInputElement
+		expect(toggleAfter.checked).toBe(true)
+	})
 })

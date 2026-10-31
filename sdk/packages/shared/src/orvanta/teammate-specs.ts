@@ -8,9 +8,11 @@ export type AgentProfileLookup =
 	| Record<string, AgentProfile>
 	| ((agentId: string) => AgentProfile | undefined);
 
-/** Appended to every teammate rolePrompt so the report is the end of the run. */
+/** Appended to every teammate rolePrompt so completing the assigned task ends the run. */
 export const TEAMMATE_CLOSEOUT_PROMPT = `## Kết thúc nhiệm vụ
-Khi xong việc, gửi báo cáo đầy đủ cho Coordinator bằng \`orvanta_submit_handoff\` hoặc \`team_send_message\` (toàn bộ chi tiết, artifact, evidence nằm trong nội dung báo cáo). Sau khi gửi báo cáo, dừng ngay — không viết thêm tin chat, không gọi \`submit_and_exit\`, không tóm tắt lại trên kênh.`;
+- Phiếu task (có \`taskId\`): hoàn thành bằng \`orvanta_submit_handoff\` — đặt toàn bộ kết quả/artifact/evidence vào \`content\`. Hệ thống đánh dấu task Completed và gửi báo cáo về Coordinator.
+- Tin nhắn nhanh / kiểm tra tình trạng / hỏi đáp (không phải đóng phiếu): trả lời bằng \`team_send_message\` tới Coordinator với nội dung đầy đủ trong body.
+Không viết thêm tin chat sau khi tool closeout thành công, không gọi \`submit_and_exit\`, không chỉ trả lời bằng chat trên kênh (Coordinator sẽ không nhận được).`;
 
 export function appendTeammateCloseout(prompt: string): string {
 	const trimmed = prompt.trim();

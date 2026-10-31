@@ -137,6 +137,11 @@ export class SdkInteractionCoordinator {
 			this.nextMessageTs(),
 			this.options.getCwd?.(),
 		)
+		// Stamp agent so Console channel filter + approval toast can route to the right Agent.
+		if (request.agentId) {
+			toolAskMessage.agentId = request.agentId
+			toolAskMessage.agent_id = request.agentId
+		}
 
 		this.options.messages.appendAndEmit([toolAskMessage], {
 			type: "status",

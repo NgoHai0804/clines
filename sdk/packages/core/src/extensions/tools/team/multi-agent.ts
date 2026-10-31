@@ -589,6 +589,7 @@ interface TeamMemberState extends TeamMemberSnapshot {
 export class AgentTeamsRuntime {
 	private readonly teamId: string;
 	private readonly teamName: string;
+	private leadAgentId: string;
 	private readonly onTeamEvent?: (event: TeamEvent) => void;
 	private readonly onStateDirty?: () => void;
 	private readonly members: Map<string, TeamMemberState> = new Map();
@@ -631,6 +632,7 @@ export class AgentTeamsRuntime {
 		);
 		this.maxConcurrentRuns = Math.max(1, options.maxConcurrentRuns ?? 2);
 		const leadAgentId = options.leadAgentId ?? "lead";
+		this.leadAgentId = leadAgentId;
 		this.members.set(leadAgentId, {
 			agentId: leadAgentId,
 			role: "lead",
@@ -647,6 +649,37 @@ export class AgentTeamsRuntime {
 
 	getTeamName(): string {
 		return this.teamName;
+	}
+
+	getLeadAgentId(): string {
+		return this.leadAgentId;
+	}
+
+	/**
+	 * Resolve a UI/roster agent id against live team members.
+	 * Accepts exact ids and slug↔instance pairs (e.g. `reviewer` ↔ `reviewer-abc-1`).
+	 */
+	resolveMemberId(agentId: string): string | undefined {
+		const trimmed = agentId.trim();
+		if (!trimmed) {
+			return undefined;
+		}
+		if (this.members.has(trimmed)) {
+			return trimmed;
+		}
+		const lower = trimmed.toLowerCase();
+		for (const id of this.members.keys()) {
+			if (id.toLowerCase() === lower) {
+				return id;
+			}
+		}
+		for (const id of this.members.keys()) {
+			const idLower = id.toLowerCase();
+			if (idLower.startsWith(`${lower}-`) || lower.startsWith(`${idLower}-`)) {
+				return id;
+			}
+		}
+		return undefined;
 	}
 
 	getMemberRole(agentId: string): "lead" | "teammate" | undefined {
@@ -845,6 +878,7 @@ export class AgentTeamsRuntime {
 		);
 		this.members.clear();
 		for (const lead of leadMembers) {
+			this.leadAgentId = lead.agentId;
 			this.members.set(lead.agentId, {
 				...lead,
 				status: "idle",
@@ -1600,6 +1634,7 @@ export class AgentTeamsRuntime {
 		subject: string,
 		body: string,
 		taskId?: string,
+		options?: { wakeIfIdle?: boolean },
 	): TeamMailboxMessage {
 		if (!this.members.has(fromAgentId)) {
 			throw new Error(`Unknown sender "${fromAgentId}"`);
@@ -1623,12 +1658,18 @@ export class AgentTeamsRuntime {
 			type: TeamMessageType.TeamMessage,
 			message: { ...message },
 		});
-		if (
-			recipient.role === "teammate" &&
-			recipient.runningCount > 0 &&
-			recipient.agent
-		) {
-			recipient.pendingSteerMessage = `[MAILBOX] You got a message from ${fromAgentId}. Subject: "${subject}". Use the team_read_mailbox tool to read it at your convenience.`;
+		if (recipient.role === "teammate" && recipient.agent) {
+			if (recipient.runningCount > 0) {
+				recipient.pendingSteerMessage = `[MAILBOX] You got a message from ${fromAgentId}. Subject: "${subject}". Use the team_read_mailbox tool to read it at your convenience.`;
+			} else if (options?.wakeIfIdle) {
+				// CEO 1:1 steer: idle teammates only deposit mail unless woken.
+				// Queue a run so the agent reads mailbox and replies without
+				// waiting for the next coordinator-driven routeToTeammate.
+				this.startTeammateRun(
+					toAgentId,
+					`You received a direct message from ${fromAgentId}. Subject: "${subject}". Read your mailbox with team_read_mailbox and respond to the request.`,
+				);
+			}
 		}
 		return { ...message };
 	}

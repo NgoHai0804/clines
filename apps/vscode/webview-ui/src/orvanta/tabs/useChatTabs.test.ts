@@ -36,6 +36,26 @@ describe("useChatTabs", () => {
 		expect(TaskServiceClient.clearTask).toHaveBeenCalled()
 	})
 
+	it("does not copy the previous tab's task/session onto a new tab", async () => {
+		const { result } = renderHook(() => useChatTabs())
+		await act(async () => {
+			result.current.updateActiveTab({
+				taskId: "task-old",
+				title: "Old session",
+				sessionId: "sess-old",
+				agentTasks: { coordinator: "task-old" },
+			})
+			await result.current.createNewTab("team-feed")
+		})
+
+		expect(result.current.tabs).toHaveLength(2)
+		expect(result.current.activeTab.taskId).toBeUndefined()
+		expect(result.current.activeTab.sessionId).toBeUndefined()
+		expect(result.current.activeTab.agentTasks).toEqual({})
+		expect(result.current.activeTab.title).toBe("Phiên làm việc mới")
+		expect(TaskServiceClient.clearTask).toHaveBeenCalled()
+	})
+
 	it("switches tabs and calls showTaskWithId for task tabs", async () => {
 		const { result } = renderHook(() => useChatTabs())
 		let firstTabId: string
@@ -129,7 +149,7 @@ describe("useChatTabs", () => {
 		expect(TaskServiceClient.clearTask).toHaveBeenCalled()
 	})
 
-	it("switches agents within the same tab, restoring agent task or clearing for new agent", async () => {
+	it("switches agents within the same tab without clearing or swapping the live backend task", async () => {
 		const { result } = renderHook(() => useChatTabs({ initialFocusAgentId: "coordinator" }))
 
 		// First, bind task-coord-1 to coordinator
@@ -138,31 +158,35 @@ describe("useChatTabs", () => {
 		})
 
 		expect(result.current.activeTab.agentTasks.coordinator).toBe("task-coord-1")
+		vi.clearAllMocks()
 
-		// Switch to implementer (which has no task yet)
+		// Switch to implementer (no per-agent binding) — UI focus only; keep live task
 		await act(async () => {
-			await result.current.switchAgentInActiveTab("implementer")
+			result.current.switchAgentInActiveTab("implementer")
 		})
 
 		expect(result.current.activeTab.activeAgentId).toBe("implementer")
-		expect(result.current.activeTab.taskId).toBeUndefined()
-		expect(TaskServiceClient.clearTask).toHaveBeenCalled()
+		expect(result.current.activeTab.taskId).toBe("task-coord-1")
+		expect(TaskServiceClient.clearTask).not.toHaveBeenCalled()
+		expect(TaskServiceClient.showTaskWithId).not.toHaveBeenCalled()
 
-		// Bind task-impl-2 to implementer
+		// Bind task-impl-2 to implementer (bookkeeping only)
 		await act(async () => {
 			result.current.bindTaskToActiveAgent("task-impl-2")
 		})
 
 		expect(result.current.activeTab.agentTasks.implementer).toBe("task-impl-2")
+		vi.clearAllMocks()
 
-		// Switch back to coordinator (should restore task-coord-1)
+		// Switch back to coordinator — update local taskId from binding; do not tear down runtime
 		await act(async () => {
-			await result.current.switchAgentInActiveTab("coordinator")
+			result.current.switchAgentInActiveTab("coordinator")
 		})
 
 		expect(result.current.activeTab.activeAgentId).toBe("coordinator")
 		expect(result.current.activeTab.taskId).toBe("task-coord-1")
-		expect(TaskServiceClient.showTaskWithId).toHaveBeenCalledWith(expect.objectContaining({ value: "task-coord-1" }))
+		expect(TaskServiceClient.clearTask).not.toHaveBeenCalled()
+		expect(TaskServiceClient.showTaskWithId).not.toHaveBeenCalled()
 	})
 
 	it("handles sessionId round-trip and openSessionInTab", async () => {
@@ -181,11 +205,28 @@ describe("useChatTabs", () => {
 		})
 
 		expect(result.current.activeTab.sessionId).toBe("sess-ui-001")
+		expect(result.current.activeTab.historyBrowse).toBe(true)
 		expect(result.current.activeTab.activeAgentId).toBe("implementer")
 		expect(result.current.activeTab.taskId).toBe("task-i-2")
 		expect(result.current.activeTab.agentTasks.coordinator).toBe("task-c-1")
 		expect(result.current.activeTab.agentTasks.implementer).toBe("task-i-2")
 		expect(TaskServiceClient.showTaskWithId).toHaveBeenCalledWith(expect.objectContaining({ value: "task-i-2" }))
+
+		vi.clearAllMocks()
+		// History browse: switching agent loads that agent's transcript
+		await act(async () => {
+			result.current.switchAgentInActiveTab("coordinator")
+		})
+		expect(result.current.activeTab.activeAgentId).toBe("coordinator")
+		expect(result.current.activeTab.taskId).toBe("task-c-1")
+		expect(TaskServiceClient.showTaskWithId).toHaveBeenCalledWith(expect.objectContaining({ value: "task-c-1" }))
+
+		// Must not clobber implementer binding when backend reports coordinator task
+		await act(async () => {
+			result.current.bindTaskToActiveAgent("task-c-1", "Multi Agent Session", "sess-ui-001")
+		})
+		expect(result.current.activeTab.agentTasks.implementer).toBe("task-i-2")
+		expect(result.current.activeTab.agentTasks.coordinator).toBe("task-c-1")
 	})
 
 	it("safely decodes valid and corrupted localStorage without crashing", () => {

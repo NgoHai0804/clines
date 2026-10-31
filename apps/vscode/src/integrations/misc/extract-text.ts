@@ -1,15 +1,17 @@
-import ExcelJS from "exceljs"
 import fs from "fs/promises"
 import * as iconv from "iconv-lite"
 import { isBinaryFile } from "isbinaryfile"
 import * as chardet from "jschardet"
-import mammoth from "mammoth"
 import * as path from "path"
-// @ts-expect-error-next-line
-import pdf from "pdf-parse/lib/pdf-parse"
 import { truncateContent } from "@/shared/content-limits"
 import { Logger } from "@/shared/services/Logger"
+import { loadLazyChunk } from "@/utils/load-lazy-chunk"
+import type * as LazyExtractOffice from "./lazy-extract-office"
 import { sanitizeNotebookForLLM } from "./notebook-utils"
+
+function getExtractOffice(): typeof LazyExtractOffice {
+	return loadLazyChunk<typeof LazyExtractOffice>("extract-office")
+}
 
 export async function detectEncoding(fileBuffer: Buffer, fileExtension?: string): Promise<string> {
 	const detected = chardet.detect(fileBuffer)
@@ -49,16 +51,16 @@ async function callTextExtractionFunctions(filePath: string): Promise<string> {
 
 	switch (fileExtension) {
 		case ".pdf":
-			content = await extractTextFromPDF(filePath)
+			content = await getExtractOffice().extractTextFromPDF(filePath)
 			break
 		case ".docx":
-			content = await extractTextFromDOCX(filePath)
+			content = await getExtractOffice().extractTextFromDOCX(filePath)
 			break
 		case ".ipynb":
 			content = await extractTextFromIPYNB(filePath)
 			break
 		case ".xlsx":
-			content = await extractTextFromExcel(filePath)
+			content = await getExtractOffice().extractTextFromExcel(filePath)
 			break
 		default:
 			// Check file size with stat() first - faster than reading entire file for size check
@@ -76,17 +78,6 @@ async function callTextExtractionFunctions(filePath: string): Promise<string> {
 	return truncateContent(content)
 }
 
-async function extractTextFromPDF(filePath: string): Promise<string> {
-	const dataBuffer = await fs.readFile(filePath)
-	const data = await pdf(dataBuffer)
-	return data.text
-}
-
-async function extractTextFromDOCX(filePath: string): Promise<string> {
-	const result = await mammoth.extractRawText({ path: filePath })
-	return result.value
-}
-
 async function extractTextFromIPYNB(filePath: string): Promise<string> {
 	const fileBuffer = await fs.readFile(filePath)
 	const encoding = await detectEncoding(fileBuffer)
@@ -96,100 +87,6 @@ async function extractTextFromIPYNB(filePath: string): Promise<string> {
 	// notebook structure. For Jupyter commands, the specific cell's outputs are included
 	// separately via sanitizeCellForLLM which preserves text outputs.
 	return sanitizeNotebookForLLM(data, true)
-}
-
-/**
- * Format the data inside Excel cells
- */
-function formatCellValue(cell: ExcelJS.Cell): string {
-	const value = cell.value
-	if (value === null || value === undefined) {
-		return ""
-	}
-
-	// Handle error values (#DIV/0!, #N/A, etc.)
-	if (typeof value === "object" && "error" in value) {
-		return `[Error: ${value.error}]`
-	}
-
-	// Handle dates - ExcelJS can parse them as Date objects
-	if (value instanceof Date) {
-		return value.toISOString().split("T")[0] // Just the date part
-	}
-
-	// Handle rich text
-	if (typeof value === "object" && "richText" in value) {
-		return value.richText.map((rt) => rt.text).join("")
-	}
-
-	// Handle hyperlinks
-	if (typeof value === "object" && "text" in value && "hyperlink" in value) {
-		return `${value.text} (${value.hyperlink})`
-	}
-
-	// Handle formulas - get the calculated result
-	if (typeof value === "object" && "formula" in value) {
-		if ("result" in value && value.result !== undefined && value.result !== null) {
-			return value.result.toString()
-		}
-		return `[Formula: ${value.formula}]`
-	}
-
-	return value.toString()
-}
-
-/**
- * Extract and format text from xlsx files
- */
-async function extractTextFromExcel(filePath: string): Promise<string> {
-	const workbook = new ExcelJS.Workbook()
-	let excelText = ""
-
-	try {
-		await workbook.xlsx.readFile(filePath)
-
-		workbook.eachSheet((worksheet, _sheetId) => {
-			// Skip hidden sheets
-			if (worksheet.state === "hidden" || worksheet.state === "veryHidden") {
-				return
-			}
-
-			excelText += `--- Sheet: ${worksheet.name} ---\n`
-
-			worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-				// Optional: limit processing for very large sheets
-				if (rowNumber > 50000) {
-					excelText += `[... truncated at row ${rowNumber} ...]\n`
-					return false
-				}
-
-				const rowTexts: string[] = []
-				let hasContent = false
-
-				row.eachCell({ includeEmpty: true }, (cell, _colNumber) => {
-					const cellText = formatCellValue(cell)
-					if (cellText.trim()) {
-						hasContent = true
-					}
-					rowTexts.push(cellText)
-				})
-
-				// Only add rows with actual content
-				if (hasContent) {
-					excelText += rowTexts.join("\t") + "\n"
-				}
-
-				return true
-			})
-
-			excelText += "\n" // Blank line between sheets
-		})
-
-		return excelText.trim()
-	} catch (error: any) {
-		Logger.error(`Error extracting text from Excel ${filePath}:`, error)
-		throw new Error(`Failed to extract text from Excel: ${error.message}`)
-	}
 }
 
 /**

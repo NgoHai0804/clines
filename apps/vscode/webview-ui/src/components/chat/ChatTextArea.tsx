@@ -10,6 +10,7 @@ import DynamicTextArea from "react-textarea-autosize"
 import ContextMenu from "@/components/chat/ContextMenu"
 import { CHAT_CONSTANTS } from "@/components/chat/chat-view/constants"
 import SlashCommandMenu from "@/components/chat/SlashCommandMenu"
+import ContextUsageRing from "@/components/chat/task-header/ContextUsageRing"
 import Thumbnails from "@/components/common/Thumbnails"
 import { getModeSpecificFields } from "@/components/settings/utils/providerUtils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -79,6 +80,16 @@ interface ChatTextAreaProps {
 	shouldDisableFilesAndImages: boolean
 	onHeightChange?: (height: number) => void
 	onFocusChange?: (isFocused: boolean) => void
+	contextUsage?: {
+		tokensIn?: number
+		tokensOut?: number
+		cacheWrites?: number
+		cacheReads?: number
+		lastApiReqTotalTokens?: number
+		contextWindow?: number
+		compactDisabled: boolean
+		compactTask: () => Promise<boolean>
+	}
 }
 
 interface GitCommit {
@@ -106,6 +117,7 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 			shouldDisableFilesAndImages,
 			onHeightChange,
 			onFocusChange,
+			contextUsage,
 		},
 		ref,
 	) => {
@@ -1499,6 +1511,18 @@ const ChatTextArea = forwardRef<HTMLTextAreaElement, ChatTextAreaProps>(
 					<div
 						className="absolute flex items-center gap-1.5 bottom-3.5 right-4 z-10 text-xs"
 						style={{ height: textAreaBaseHeight }}>
+						{contextUsage && (
+							<ContextUsageRing
+								cacheReads={contextUsage.cacheReads}
+								cacheWrites={contextUsage.cacheWrites}
+								compactDisabled={contextUsage.compactDisabled}
+								compactTask={contextUsage.compactTask}
+								contextWindow={contextUsage.contextWindow}
+								lastApiReqTotalTokens={contextUsage.lastApiReqTotalTokens}
+								tokensIn={contextUsage.tokensIn}
+								tokensOut={contextUsage.tokensOut}
+							/>
+						)}
 						<Tooltip>
 							<TooltipContent>Đính kèm tệp & hình ảnh</TooltipContent>
 							<TooltipTrigger asChild>

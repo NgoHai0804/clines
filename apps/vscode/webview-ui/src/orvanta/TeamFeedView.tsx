@@ -33,12 +33,13 @@ export function TeamFeedView({ onSelectAgent, companyName, ceoSessionId }: TeamF
 		syncStatus,
 		lastUpdatedAt,
 		pauseStatus,
-		needsAttention,
+		needsAttention: needsAttentionRaw,
 		canPauseRuntime,
 		requestRuntimePause,
 		requestRuntimeResume,
 		pauseError,
 	} = useWarRoom(true, ceoSessionId)
+	const needsAttention = needsAttentionRaw ?? []
 	const timelineScrollRef = useRef<HTMLDivElement>(null)
 
 	const agents = useMemo(() => snapshot?.cards ?? [], [snapshot?.cards])

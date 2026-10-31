@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useEvent } from "react-use"
 import { ListRange, VirtuosoHandle } from "react-virtuoso"
 import { ScrollBehavior } from "../types/chatTypes"
-import { isStickyAnchorMessage } from "../utils/filterAgentChannelMessages"
 
 /**
  * Custom hook for managing scroll behavior
@@ -21,8 +20,6 @@ export function useScrollBehavior(
 	setIsAtBottom: React.Dispatch<React.SetStateAction<boolean>>
 	pendingScrollToMessage: number | null
 	setPendingScrollToMessage: React.Dispatch<React.SetStateAction<number | null>>
-	scrolledPastUserMessage: ClineMessage | null
-	stickyPushOffset: number
 	handleRangeChanged: (range: ListRange) => void
 } {
 	// Refs
@@ -34,113 +31,11 @@ export function useScrollBehavior(
 	// State
 	const [isAtBottom, setIsAtBottom] = useState(false)
 	const [pendingScrollToMessage, setPendingScrollToMessage] = useState<number | null>(null)
-	const [scrolledPastUserMessage, setScrolledPastUserMessage] = useState<ClineMessage | null>(null)
-	const [stickyPushOffset, setStickyPushOffset] = useState(0)
-	const stickyFrameRef = useRef<number | null>(null)
 
-	const pinableMessages = useMemo(() => {
-		return visibleMessages.filter(isStickyAnchorMessage)
-	}, [visibleMessages])
+	const handleRangeChanged = useCallback((_range: ListRange) => {
+		// Reserved for Virtuoso rangeChanged; sticky-pin tracking was removed.
+	}, [])
 
-	const checkScrolledPastUserMessage = useCallback(() => {
-		const scrollContainer = scrollContainerRef.current
-		if (!scrollContainer || pinableMessages.length === 0) {
-			setScrolledPastUserMessage(null)
-			setStickyPushOffset(0)
-			return
-		}
-
-		const containerRect = scrollContainer.getBoundingClientRect()
-		const threshold = 8
-		let current: ClineMessage | null = null
-		let currentEl: HTMLElement | null = null
-		let nextEl: HTMLElement | null = null
-		let foundVisible = false
-
-		for (let i = 0; i < pinableMessages.length; i++) {
-			const msg = pinableMessages[i]
-			const el = scrollContainer.querySelector(`[data-message-ts="${msg.ts}"]`) as HTMLElement | null
-			if (!el) {
-				if (foundVisible) {
-					continue
-				}
-				current = msg
-				continue
-			}
-			foundVisible = true
-			const rect = el.getBoundingClientRect()
-			if (rect.bottom <= containerRect.top + threshold) {
-				current = msg
-				currentEl = el
-			} else if (!nextEl) {
-				nextEl = el
-			}
-		}
-
-		let pushOffset = 0
-		if (current && nextEl) {
-			const stickyHeight = currentEl?.offsetHeight || 72
-			const overlap = stickyHeight - (nextEl.getBoundingClientRect().top - containerRect.top)
-			if (overlap > 0) {
-				pushOffset = -Math.round(overlap)
-			}
-		}
-
-		setScrolledPastUserMessage((previous) => (previous?.ts === current?.ts ? previous : current))
-		setStickyPushOffset((previous) => (previous === pushOffset ? previous : pushOffset))
-	}, [pinableMessages])
-
-	// Use scroll event listener - attach to the scrollable element inside the container
-	useEffect(() => {
-		const scrollContainer = scrollContainerRef.current
-		if (!scrollContainer) {
-			return
-		}
-
-		// The scrollable element is the Virtuoso scroller or a child with overflow
-		const findScrollableElement = () => {
-			// Try finding the Virtuoso scroller
-			const virtuosoScroller = scrollContainer.querySelector('[data-virtuoso-scroller="true"]') as HTMLElement
-			if (virtuosoScroller) {
-				return virtuosoScroller
-			}
-			// Fallback to the first child with scrollable class
-			const scrollable = scrollContainer.querySelector(".scrollable") as HTMLElement
-			return scrollable || scrollContainer
-		}
-
-		const scrollableElement = findScrollableElement()
-
-		const handleScroll = () => {
-			if (stickyFrameRef.current != null) {
-				return
-			}
-			stickyFrameRef.current = requestAnimationFrame(() => {
-				stickyFrameRef.current = null
-				checkScrolledPastUserMessage()
-			})
-		}
-
-		scrollableElement.addEventListener("scroll", handleScroll, { passive: true })
-
-		// Also check on mount and when dependencies change
-		checkScrolledPastUserMessage()
-
-		return () => {
-			scrollableElement.removeEventListener("scroll", handleScroll)
-			if (stickyFrameRef.current != null) {
-				cancelAnimationFrame(stickyFrameRef.current)
-				stickyFrameRef.current = null
-			}
-		}
-	}, [checkScrolledPastUserMessage])
-
-	const handleRangeChanged = useCallback(
-		(_range: ListRange) => {
-			checkScrolledPastUserMessage()
-		},
-		[checkScrolledPastUserMessage],
-	)
 	const scrollToBottomSmooth = useMemo(
 		() =>
 			debounce(
@@ -202,19 +97,11 @@ export function useScrollBehavior(
 				setPendingScrollToMessage(null)
 				disableAutoScrollRef.current = true
 
-				// Check if this is the first user feedback message (no sticky header would show when scrolling to it)
-				const isFirstUserMessage =
-					groupIndex === 0 || !visibleMessages.slice(0, visibleIndex).some((msg) => msg.say === "user_feedback")
-
-				const stickyHeaderOffset = isFirstUserMessage ? 0 : 8
-
-				// Use scrollToIndex with offset - Virtuoso handles this more reliably than manual scrollTo
 				requestAnimationFrame(() => {
 					virtuosoRef.current?.scrollToIndex({
 						index: groupIndex,
 						align: "start",
 						behavior: "smooth",
-						offset: -stickyHeaderOffset,
 					})
 				})
 			}
@@ -267,7 +154,7 @@ export function useScrollBehavior(
 			}
 			// When expanding, don't scroll - let the element expand in place
 		},
-		[groupedMessages, expandedRows, scrollToBottomAuto, isAtBottom],
+		[groupedMessages, expandedRows, scrollToBottomAuto, isAtBottom, setExpandedRows],
 	)
 
 	const clearLayoutSettleScrollTimers = useCallback(() => {
@@ -354,8 +241,6 @@ export function useScrollBehavior(
 		setIsAtBottom,
 		pendingScrollToMessage,
 		setPendingScrollToMessage,
-		scrolledPastUserMessage,
-		stickyPushOffset,
 		handleRangeChanged,
 	}
 }

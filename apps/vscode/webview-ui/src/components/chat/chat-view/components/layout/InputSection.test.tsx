@@ -365,4 +365,48 @@ describe("InputSection", () => {
 		expect(screen.queryByTestId("composer-focus-chip")).toBeNull()
 		expect(screen.queryByRole("button", { name: "Quay lại coordinator" })).toBeNull()
 	})
+
+	it("keeps teammate 1:1 send enabled even when the coordinator turn locked the composer", () => {
+		mockTurnState.mockReturnValue({ phase: "idle", seq: 1 })
+		const handleSendMessage = vi.fn().mockResolvedValue(undefined)
+
+		render(
+			<InputSection
+				chatState={makeChatState({ sendingDisabled: true })}
+				focusAgent={{ id: "reviewer", displayName: "Reviewer", role: "teammate", status: "idle" }}
+				messageHandlers={{ handleSendMessage } as unknown as MessageHandlers}
+				placeholderText="Type a message"
+				scrollBehavior={makeScrollBehavior()}
+				selectFilesAndImages={vi.fn()}
+				shouldDisableFilesAndImages={false}
+			/>,
+		)
+
+		const sendButton = screen.getByRole("button", { name: "Send" })
+		expect(sendButton).not.toBeDisabled()
+		fireEvent.click(sendButton)
+		expect(handleSendMessage).toHaveBeenCalled()
+	})
+
+	it("allows 1:1 send to a stopped teammate (not only coordinator)", () => {
+		mockTurnState.mockReturnValue({ phase: "idle", seq: 1 })
+		const handleSendMessage = vi.fn().mockResolvedValue(undefined)
+
+		render(
+			<InputSection
+				chatState={makeChatState({ sendingDisabled: false })}
+				focusAgent={{ id: "reviewer", displayName: "Reviewer", role: "teammate", status: "stopped" }}
+				messageHandlers={{ handleSendMessage } as unknown as MessageHandlers}
+				placeholderText="Type a message"
+				scrollBehavior={makeScrollBehavior()}
+				selectFilesAndImages={vi.fn()}
+				shouldDisableFilesAndImages={false}
+			/>,
+		)
+
+		const sendButton = screen.getByRole("button", { name: "Send" })
+		expect(sendButton).not.toBeDisabled()
+		fireEvent.click(sendButton)
+		expect(handleSendMessage).toHaveBeenCalled()
+	})
 })

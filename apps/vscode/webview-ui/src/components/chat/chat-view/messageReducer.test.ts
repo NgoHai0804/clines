@@ -221,6 +221,24 @@ describe("messageReducer — deterministic", () => {
 			expect(tsList(s)).toEqual([1, 2])
 		})
 
+		it("idleClear empty snapshot wipes the transcript even on the same epoch", () => {
+			// [+] / clearTask: host has no task. Same-epoch empty must blank the UI or the
+			// previous session keeps painting on the new tab.
+			let s = createReplicaState()
+			s = applyStateSnapshot(s, [msg(1, 1, 1, false, "task"), msg(2, 2, 1, false, "answer")], 1, 1)
+			s = applyStateSnapshot(s, [], 1, 2, undefined, { idleClear: true })
+			expect(tsList(s)).toEqual([])
+			expect(s.epoch).toBe(1)
+		})
+
+		it("idleClear empty snapshot wipes even when the snapshot epoch is stale", () => {
+			let s = createReplicaState()
+			s = applyStateSnapshot(s, [msg(1, 1, 2, false, "task")], 2, 5)
+			s = applyStateSnapshot(s, [], 1, 6, undefined, { idleClear: true })
+			expect(tsList(s)).toEqual([])
+			expect(s.epoch).toBe(2)
+		})
+
 		it("a lone newer-epoch partial does NOT discard a populated transcript", () => {
 			// If an epoch bump races ahead of the full snapshot, a single newer-epoch partial
 			// must not be treated as the entire new transcript (which would empty the task).

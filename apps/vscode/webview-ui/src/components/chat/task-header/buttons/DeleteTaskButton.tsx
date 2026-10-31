@@ -20,7 +20,13 @@ const DeleteTaskButton: React.FC<{
 				onClick={(e) => {
 					e.preventDefault()
 					e.stopPropagation()
-					taskId && TaskServiceClient.deleteTasksWithIds(StringArrayRequest.create({ value: [taskId] }))
+					if (!taskId) {
+						return
+					}
+					if (!window.confirm("Are you sure you want to delete this task? This action cannot be undone.")) {
+						return
+					}
+					void TaskServiceClient.deleteTasksWithIds(StringArrayRequest.create({ value: [taskId] }))
 				}}
 				size="xs"
 				variant="icon">

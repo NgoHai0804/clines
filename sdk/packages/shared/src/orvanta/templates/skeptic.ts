@@ -8,7 +8,7 @@ modelId: null
 maxIterations: 40
 temperature: null
 tools:
-  allow: [read_files, grep, list_files]
+  allow: [read_files, grep, list_files, team_send_message, team_read_mailbox, orvanta_submit_handoff]
   deny: [write_to_file, apply_diff, execute_command, team_spawn_teammate]
 scopePaths:
   allow: ["**/*"]

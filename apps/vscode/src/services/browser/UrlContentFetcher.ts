@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio"
-import { Browser, Page } from "puppeteer-core"
+import type { Browser, Page } from "puppeteer-core"
 import TurndownService from "turndown"
 import { StateManager } from "@/core/storage/StateManager"
 import { ensureChromiumExists } from "./utils"

@@ -63,37 +63,82 @@ describe("ConsoleHistoryDrawer", () => {
 		expect(container.firstChild).toBeNull()
 	})
 
-	it("renders task history list when isOpen is true without filter chips", () => {
+	it("renders session/task history without agent badges or filter chips", () => {
 		renderWithContext(<ConsoleHistoryDrawer isOpen={true} onClose={vi.fn()} onSelectTask={vi.fn()} />)
 
 		expect(screen.getByText("Lịch sử cuộc trò chuyện")).toBeInTheDocument()
 		expect(screen.getByText("Fix layout bug in Chrome tab bar")).toBeInTheDocument()
 		expect(screen.getByText("Implement purpose lock mechanism")).toBeInTheDocument()
 
-		// Verify old filter chips are removed
 		expect(screen.queryByText("Hôm nay")).not.toBeInTheDocument()
 		expect(screen.queryByText("Tất cả")).not.toBeInTheDocument()
-		expect(screen.queryByText("@reviewer")).not.toBeInTheDocument()
-
-		// Verify agent badges are shown
-		expect(screen.getByText("@coordinator")).toBeInTheDocument()
-		expect(screen.getByText("@implementer")).toBeInTheDocument()
+		expect(screen.queryByText("@coordinator")).not.toBeInTheDocument()
+		expect(screen.queryByText("@implementer")).not.toBeInTheDocument()
 	})
 
-	it("filters tasks by search input (prompt or agent)", () => {
+	it("filters sessions/tasks by search input (title)", () => {
 		renderWithContext(<ConsoleHistoryDrawer isOpen={true} onClose={vi.fn()} onSelectTask={vi.fn()} />)
 
 		const input = screen.getByPlaceholderText("Tìm kiếm yêu cầu, mã task, hoặc agent...")
 
-		// Search by prompt text
 		fireEvent.change(input, { target: { value: "purpose lock" } })
 		expect(screen.queryByText("Fix layout bug in Chrome tab bar")).not.toBeInTheDocument()
 		expect(screen.getByText("Implement purpose lock mechanism")).toBeInTheDocument()
+	})
 
-		// Search by agent name
-		fireEvent.change(input, { target: { value: "coordinator" } })
-		expect(screen.getByText("Fix layout bug in Chrome tab bar")).toBeInTheDocument()
-		expect(screen.queryByText("Implement purpose lock mechanism")).not.toBeInTheDocument()
+	it("lists CEO sessions with delete and without Coordinator badges", async () => {
+		const { OrvantaServiceClient } = await import("@/services/grpc-client")
+		vi.mocked(OrvantaServiceClient.listCeoSessions).mockResolvedValueOnce({
+			success: true,
+			status: "ready",
+			sessions: [
+				{
+					sessionId: "session-aaa",
+					title: "Giao việc cho coder",
+					status: "active",
+					createdAt: new Date().toISOString(),
+					updatedAt: new Date().toISOString(),
+					companyId: "co-1",
+					isFavorited: false,
+					participants: [
+						{
+							agentNumericId: 1,
+							agentSlug: "coordinator",
+							displayName: "Coordinator",
+							role: "lead",
+							taskId: "task-ceo-1",
+							runIds: [],
+							status: "active",
+						},
+					],
+				},
+			],
+		} as any)
+
+		const handleSelectSession = vi.fn()
+		renderWithContext(
+			<ConsoleHistoryDrawer
+				isOpen={true}
+				onClose={vi.fn()}
+				onSelectCeoSession={handleSelectSession}
+				onSelectTask={vi.fn()}
+			/>,
+		)
+
+		await waitFor(() => {
+			expect(screen.getByText("Giao việc cho coder")).toBeInTheDocument()
+		})
+		expect(screen.queryByText("Coordinator")).not.toBeInTheDocument()
+		expect(screen.queryByText("Fix layout bug in Chrome tab bar")).not.toBeInTheDocument()
+
+		const deleteBtn = screen.getByLabelText("Xóa phiên")
+		fireEvent.click(deleteBtn)
+		expect(screen.getByText("Xác nhận xóa?")).toBeInTheDocument()
+		fireEvent.click(screen.getByRole("button", { name: "Xóa" }))
+
+		await waitFor(() => {
+			expect(TaskServiceClient.deleteTasksWithIds).toHaveBeenCalledWith(expect.objectContaining({ value: ["task-ceo-1"] }))
+		})
 	})
 
 	it("shows inline confirmation and deletes task when confirmed", async () => {
@@ -173,71 +218,5 @@ describe("ConsoleHistoryDrawer", () => {
 
 		fireEvent.keyDown(window, { key: "Escape" })
 		expect(handleClose).toHaveBeenCalledTimes(1)
-	})
-
-	it("shows rename indicator when an agent has been renamed in current roster", () => {
-		const taskWithRenamedAgent = [
-			{
-				id: "task-renamed",
-				ts: Date.now() - 1000,
-				task: "Task with renamed agent",
-				agents: [
-					{
-						id: "old-slug",
-						displayName: "Old Agent Name",
-						agentNumericId: 2, // In mock company, agent id "implementer" has numeric ID or matching role
-					},
-				],
-			},
-		]
-		render(
-			<ExtensionStateContext.Provider value={{ taskHistory: taskWithRenamedAgent } as any}>
-				<ConsoleHistoryDrawer
-					companyAgents={[
-						{ id: "implementer", displayName: "Frontend Developer", role: "teammate", agentNumericId: 2 },
-					]}
-					isOpen={true}
-					onClose={vi.fn()}
-					onSelectTask={vi.fn()}
-				/>
-			</ExtensionStateContext.Provider>,
-		)
-
-		expect(screen.getByText(/@old-slug/)).toBeInTheDocument()
-		expect(screen.getByText("(đổi tên)")).toBeInTheDocument()
-	})
-
-	it("handles unavailable tasks without silently falling back to another agent", () => {
-		const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {})
-		const handleSelect = vi.fn()
-		const taskWithUnavailable = [
-			{
-				id: "task-missing",
-				ts: Date.now() - 1000,
-				task: "Task with unavailable participant",
-				agents: [
-					{
-						id: "missing-agent",
-						displayName: "Missing Agent",
-						status: "unknown" as const,
-					},
-				],
-			},
-		]
-		render(
-			<ExtensionStateContext.Provider value={{ taskHistory: taskWithUnavailable } as any}>
-				<ConsoleHistoryDrawer isOpen={true} onClose={vi.fn()} onSelectTask={handleSelect} />
-			</ExtensionStateContext.Provider>,
-		)
-
-		expect(screen.getByText(/@missing-agent/)).toBeInTheDocument()
-		expect(screen.getByText("(thiếu)")).toBeInTheDocument()
-
-		// Clicking unavailable badge warns and does NOT call onSelectTask
-		const badge = screen.getByText(/@missing-agent/).closest("button")!
-		fireEvent.click(badge)
-		expect(alertSpy).toHaveBeenCalledWith(expect.stringContaining("không còn khả dụng"))
-		expect(handleSelect).not.toHaveBeenCalled()
-		alertSpy.mockRestore()
 	})
 })

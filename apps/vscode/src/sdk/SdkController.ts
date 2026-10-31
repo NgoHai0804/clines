@@ -1648,12 +1648,12 @@ export class Controller {
 	}
 
 	async cancelTask(): Promise<void> {
-		// Fence first: mark resumable and invalidate provisioning before any abort await,
-		// so straggler work cannot restore the cancelled turn's streaming state.
-		this.turnStateTracker.set("resumable")
+		// Fence first: leave streaming so straggler events cannot paint a live turn.
+		// Cancel is a hard stop in Orvanta (idle) — no Resume Task affordance.
+		this.turnStateTracker.set("idle")
 		if (this.cloud.cancelPendingStartFor(this.task)) {
 			// The sandbox never started and its record is being deleted, so there is
-			// nothing to resume: return to the home view instead of offering Resume Task.
+			// nothing to resume: return to the home view.
 			await this.clearTask()
 			return
 		}
@@ -1718,6 +1718,13 @@ export class Controller {
 		// A cloud task still provisioning has no SDK session for taskControl to end;
 		// stop it here so it cannot re-install its view after the user left.
 		this.cloud.cancelPendingStart()
+		// Drop CEO 1:1 steers for the closing session so [+] / new blank tabs do not
+		// reinject the previous transcript via mergeCeoDirectMessagesIntoTranscript.
+		const { clearCeoDirectMessages } = await import("@/orvanta/ceo-direct-message-store")
+		clearCeoDirectMessages()
+		// Fence BEFORE session teardown so concurrent snapshots cannot land on the old
+		// epoch after clear; the final empty post (and webview idleClear) blank the UI.
+		this.resetMessageTranslatorAndFence()
 		await this.taskControl.clearTask()
 		await this.postStateToWebview()
 	}

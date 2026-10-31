@@ -71,6 +71,7 @@ import {
 	TeamTaskToolResultSchema,
 	type TeamTeammateSpec,
 	EphemeralTracker,
+	createOrvantaSubmitHandoffTool,
 	getCeoSessionPause,
 	isCeoSessionDispatchBlocked,
 	validateWithZod,
@@ -260,6 +261,36 @@ export const TEAM_TOOL_NAMES = [
 	"team_list_outcomes",
 ] as const;
 
+function createTeammateHandoffTool(options: {
+	runtime: AgentTeamsRuntime;
+	agentId: string;
+	workspaceRoot: string;
+}): AgentTool {
+	const { runtime, agentId, workspaceRoot } = options;
+	return createOrvantaSubmitHandoffTool({
+		workspaceRoot,
+		requesterId: agentId,
+		onSubmitted: async ({ taskId, content }) => {
+			let taskCompleted = false;
+			try {
+				runtime.completeTask(taskId, agentId, content.slice(0, 2000));
+				taskCompleted = true;
+			} catch {
+				// Ad-hoc ids (e.g. status-check codes) are not team_task rows.
+			}
+			const leadId = runtime.getLeadAgentId();
+			runtime.sendMessage(
+				agentId,
+				leadId,
+				taskCompleted ? `Handoff ${taskId}` : `Report ${taskId}`,
+				content,
+				taskCompleted ? taskId : undefined,
+			);
+			return { taskCompleted };
+		},
+	}) as AgentTool;
+}
+
 function spawnTeamTeammate(
 	options: Omit<CreateAgentTeamsToolsOptions, "requesterId" | "allowSpawn"> & {
 		requesterId: string;
@@ -283,7 +314,24 @@ function spawnTeamTeammate(
 			includeSpawnTool: false,
 		}),
 	);
-	const cwd = options.teammateConfigProvider.getRuntimeConfig().cwd;
+	const runtimeConfig = options.teammateConfigProvider.getRuntimeConfig();
+	const cwd = runtimeConfig.cwd;
+	const workspaceRoot =
+		runtimeConfig.workspaceRoot?.trim() || cwd?.trim() || "";
+	// Orvanta teammates must be able to close tasks / report to the lead.
+	// Lead already gets this via session extraTools; teammates need it here.
+	if (
+		workspaceRoot &&
+		!teammateTools.some((tool) => tool.name === "orvanta_submit_handoff")
+	) {
+		teammateTools.push(
+			createTeammateHandoffTool({
+				runtime: options.runtime,
+				agentId: options.spec.agentId,
+				workspaceRoot,
+			}),
+		);
+	}
 	const wrappedTeammateTools = teammateTools.map((tool) =>
 		wrapToolWithPurposeLock(tool, {
 			requesterId: options.spec.agentId,
@@ -643,7 +691,7 @@ export function createAgentTeamsTools(
 						validateWithZod(TeamRunTaskToolResultSchema, {
 							agentId: validatedInput.agentId,
 							mode: "sync" as const,
-							status: "running" as const,
+							status: "completed" as const,
 							dispatched: true,
 							message: `Task dispatched to ${validatedInput.agentId} and completed in sync mode.`,
 							text: result.text,
@@ -740,8 +788,8 @@ export function createAgentTeamsTools(
 		createTool<TeamSendMessageInput, { id: string; toAgentId: string }>({
 			name: "team_send_message",
 			description: isLeadRequester
-				? "Send a mailbox message to a specific teammate."
-				: "Send a mailbox message. To finish a task, send the full report to Coordinator in the message body. A successful send ends your turn — do not write more chat and do not call submit_and_exit.",
+				? "Send a mailbox message to a specific teammate. If the teammate is idle, this also starts a run so they can reply. Prefer team_run_task for real delegated work."
+				: "Send a mailbox message (quick replies, status checks, Q&A). Put the full answer in the body. For closing a formal team task with results, prefer orvanta_submit_handoff. A successful send ends your turn — do not write more chat and do not call submit_and_exit.",
 			inputSchema: zodToJsonSchema(TeamSendMessageInputSchema),
 			lifecycle: isLeadRequester ? undefined : { completesRun: true },
 			execute: async (input) => {
@@ -756,6 +804,28 @@ export function createAgentTeamsTools(
 					validatedInput.body,
 					validatedInput.taskId ?? undefined,
 				);
+				// Lead → idle teammate: mailbox alone never starts a turn, so the UI
+				// shows Assigned forever. Queue a run when nothing is already active.
+				if (isLeadRequester) {
+					const recipientRole = options.runtime.getMemberRole(
+						validatedInput.toAgentId,
+					);
+					const hasActiveWork =
+						options.runtime.listRuns({
+							agentId: validatedInput.toAgentId,
+							includeCompleted: false,
+						}).length > 0;
+					if (recipientRole === "teammate" && !hasActiveWork) {
+						options.runtime.startTeammateRun(
+							validatedInput.toAgentId,
+							`Subject: ${validatedInput.subject}\n\n${validatedInput.body}`,
+							{
+								taskId: validatedInput.taskId || undefined,
+								fromAgentId: options.requesterId,
+							},
+						);
+					}
+				}
 				return validateWithZod(TeamSendMessageToolResultSchema, {
 					id: message.id,
 					toAgentId: message.toAgentId,

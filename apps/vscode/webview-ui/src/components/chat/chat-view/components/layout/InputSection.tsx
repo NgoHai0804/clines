@@ -19,6 +19,16 @@ interface InputSectionProps {
 	contextDecision?: { id: string; title: string }
 	onClearContextTask?: () => void
 	onClearContextDecision?: () => void
+	contextUsage?: {
+		tokensIn?: number
+		tokensOut?: number
+		cacheWrites?: number
+		cacheReads?: number
+		lastApiReqTotalTokens?: number
+		contextWindow?: number
+		compactDisabled: boolean
+		compactTask: () => Promise<boolean>
+	}
 }
 
 /**
@@ -37,6 +47,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
 	contextDecision,
 	onClearContextTask,
 	onClearContextDecision,
+	contextUsage,
 }) => {
 	const {
 		activeQuote,
@@ -72,18 +83,23 @@ export const InputSection: React.FC<InputSectionProps> = ({
 	// rather than silently dropping the attachments from the request.
 	const cloudFilesUnsupported = cloudSelectedForNewTask && selectedFiles.length > 0
 	// A provisioning sandbox has no session to queue a follow-up on yet; the draft stays in the composer.
+	const isTeammateFocus = !!focusAgent && focusAgent.id !== "coordinator" && focusAgent.role !== "lead"
 	const isStopped = focusAgent?.status === "stopped"
 	const isPendingHire = focusAgent?.status?.startsWith("pending_")
-	const isAgentDisabled = isStopped || isPendingHire
-	const effectivePlaceholderText = isStopped
-		? "Agent đã dừng. Hire lại từ Home."
-		: isPendingHire
-			? "Chờ duyệt hire."
+	// Only pending hire blocks the composer. Idle/stopped teammates still accept CEO 1:1
+	// steer (backend reports clearly if the live team has not spawned them).
+	const isAgentDisabled = Boolean(isPendingHire)
+	const effectivePlaceholderText = isPendingHire
+		? "Chờ duyệt hire."
+		: isStopped && isTeammateFocus
+			? `Chỉ đạo 1:1 tới ${focusAgent?.displayName || focusAgent?.id || "agent"} (agent đang stopped — sẽ gửi khi phiên spawn lại)…`
 			: placeholderText
 
+	// Teammate 1:1 must not inherit Coordinator turn lock (ActionButtons mirrors main-session
+	// sendingDisabled). Direct steer is independent of the lead streaming/approval cycle.
 	const submitDisabled =
 		isAgentDisabled ||
-		(sendingDisabled && !allowSubmitWhileDisabled) ||
+		(!isTeammateFocus && sendingDisabled && !allowSubmitWhileDisabled) ||
 		cloudTargetIncomplete ||
 		cloudFilesUnsupported ||
 		currentCloudTask?.status === "provisioning"
@@ -161,6 +177,7 @@ export const InputSection: React.FC<InputSectionProps> = ({
 
 			<ChatTextArea
 				activeQuote={activeQuote}
+				contextUsage={contextUsage}
 				inputValue={inputValue}
 				onFocusChange={handleFocusChange}
 				onHeightChange={() => {

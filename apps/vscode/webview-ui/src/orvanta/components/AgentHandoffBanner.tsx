@@ -20,7 +20,7 @@ export const AgentHandoffBanner = memo(
 							<IconSend className="h-3.5 w-3.5" />
 						</div>
 						<div className="flex items-center gap-1.5 flex-wrap min-w-0">
-							<span className="font-semibold text-emerald-300">Đã gửi báo cáo cho:</span>
+							<span className="font-semibold text-emerald-300">Đã hoàn thành task — chuyển tới:</span>
 							<AgentBadge agentId={recipientId} agentRole="lead" displayName={recipientDisplayName} size="sm" />
 						</div>
 					</div>

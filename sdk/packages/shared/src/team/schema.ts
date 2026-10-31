@@ -337,7 +337,7 @@ export const TeamTaskToolResultSchema = z.discriminatedUnion("action", [
 export const TeamRunTaskToolResultSchema = z.object({
 	agentId: z.string(),
 	mode: z.enum(["sync", "async"]),
-	status: z.enum(["dispatched", "running", "queued", "joined"]),
+	status: z.enum(["dispatched", "running", "queued", "joined", "completed"]),
 	dispatched: z.boolean(),
 	message: z.string(),
 	deduped: z.boolean().optional(),

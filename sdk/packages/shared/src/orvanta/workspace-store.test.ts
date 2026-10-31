@@ -58,6 +58,40 @@ describe("workspace-store", () => {
 		expect(await loadCompany(root)).toEqual({ status: "missing" });
 	});
 
+	it("loads missing when .orvanta only has runtime local storage", async () => {
+		const root = await tempWorkspace();
+		const marker = join(root, WORKSPACE_DIRNAME, "local", "sdk", "db", "sessions.db");
+		await mkdir(join(marker, ".."), { recursive: true });
+		await writeFile(marker, "sdk", "utf8");
+		expect(await loadCompany(root)).toEqual({ status: "missing" });
+	});
+
+	it("creates a company into an existing .orvanta that only has local storage", async () => {
+		const root = await tempWorkspace();
+		const marker = join(root, WORKSPACE_DIRNAME, "local", "sdk", "db", "sessions.db");
+		await mkdir(join(marker, ".."), { recursive: true });
+		await writeFile(marker, "sdk", "utf8");
+		const createdCompany = await createCompany(root, {
+			name: "Orvanta",
+			purpose: PURPOSE,
+		});
+		expect(createdCompany.status).toBe("ready");
+		expect(await pathExists(marker)).toBe(true);
+		expect(await readFile(marker, "utf8")).toBe("sdk");
+		expect(await loadCompany(root)).toEqual(createdCompany);
+	});
+
+	it("is broken when purpose.md is missing from an otherwise present company", async () => {
+		const root = await tempWorkspace();
+		await createCompany(root, { name: "Orvanta", purpose: PURPOSE });
+		await rm(join(root, WORKSPACE_DIRNAME, PURPOSE_FILE));
+		const loaded = await loadCompany(root);
+		expect(loaded.status).toBe("broken");
+		if (loaded.status === "broken") {
+			expect(loaded.errors).toContain("thiếu purpose.md");
+		}
+	});
+
 	it("creates then loads a ready company", async () => {
 		const root = await tempWorkspace();
 		const createdCompany = await createCompany(root, {

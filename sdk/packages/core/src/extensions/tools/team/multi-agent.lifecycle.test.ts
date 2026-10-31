@@ -819,6 +819,38 @@ describe("AgentTeamsRuntime teammate lifecycle events", () => {
 		expect(mailbox[0].subject).toBe("hello");
 	});
 
+	it("wakes idle teammate when sendMessage sets wakeIfIdle", async () => {
+		const runFn = vi.fn(async () => createAbortedResult());
+		mockNextSessionRuntime({ run: runFn });
+		const runtime = new AgentTeamsRuntime({
+			teamName: "test-team",
+			leadAgentId: "session-abc",
+		});
+		expect(runtime.getLeadAgentId()).toBe("session-abc");
+		expect(runtime.resolveMemberId("reviewer")).toBeUndefined();
+
+		spawnTestTeammate(runtime, "reviewer-395529902aae-1");
+		expect(runtime.resolveMemberId("reviewer")).toBe("reviewer-395529902aae-1");
+
+		runtime.sendMessage(
+			"session-abc",
+			"reviewer-395529902aae-1",
+			"CEO steer",
+			"Please review the PR",
+			undefined,
+			{ wakeIfIdle: true },
+		);
+
+		const queued = runtime.getSnapshot().queuedRuns + runtime.getSnapshot().activeRuns;
+		expect(queued).toBeGreaterThan(0);
+		await vi.waitFor(() => {
+			expect(runFn).toHaveBeenCalled();
+		});
+		const wakeArg = runFn.mock.calls[0]?.[0] as string;
+		expect(wakeArg).toContain("CEO steer");
+		expect(wakeArg).toContain("Please review the PR");
+	});
+
 	it("includes tool and run error details in run_progress activity", async () => {
 		const events: TeamEvent[] = [];
 		let wrappedOnEvent: ((event: AgentEvent) => void) | undefined;

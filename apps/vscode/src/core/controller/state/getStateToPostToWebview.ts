@@ -8,6 +8,7 @@ import { isModelToolEnabledGlobally, readCompactionStrategyGlobally } from "@cli
 import { getHooksEnabledSafe } from "@core/hooks/hooks-utils"
 import type { ExtensionState, Platform } from "@shared/ExtensionMessage"
 import { ClineEnv } from "@/config"
+import { mergeCeoDirectMessagesIntoTranscript } from "@/orvanta/ceo-direct-message-store"
 import { ExtensionRegistryInfo, HostRegistryInfo } from "@/registry"
 import { BannerService } from "@/services/banner/BannerService"
 import { featureFlagsService } from "@/services/feature-flags"
@@ -83,7 +84,11 @@ export async function getStateToPostToWebview(controller: {
 	const currentTaskItem = controller.task?.taskId
 		? (taskHistory || []).find((item: any) => item.id === controller.task?.taskId)
 		: undefined
-	const clineMessages = [...(controller.task?.messageStateHandler?.getClineMessages?.() || [])]
+	const activeTaskId = controller.task?.taskId?.trim() || undefined
+	const clineMessages = mergeCeoDirectMessagesIntoTranscript(
+		[...(controller.task?.messageStateHandler?.getClineMessages?.() || [])],
+		activeTaskId,
+	)
 	const checkpointRestoreInput = controller.checkpointRestoreInput
 
 	const processedTaskHistory = (taskHistory || [])

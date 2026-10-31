@@ -588,6 +588,75 @@ describe("createAgentTeamsTools runtime behavior", () => {
 		);
 	});
 
+	it("injects orvanta_submit_handoff into teammate tools and notifies lead on submit", async () => {
+		const spawnTeammate = vi.fn();
+		const completeTask = vi.fn();
+		const sendMessage = vi.fn();
+		const runtime = {
+			getMemberRole: vi.fn(() => "lead"),
+			isTeammateActive: vi.fn(() => false),
+			getLeadAgentId: vi.fn(() => "coordinator"),
+			completeTask,
+			sendMessage,
+			spawnTeammate,
+		} as unknown as AgentTeamsRuntime;
+
+		const tools = createAgentTeamsTools({
+			runtime,
+			requesterId: "lead",
+			teammateConfigProvider: makeTeammateConfigProvider({
+				providerId: "cline",
+				modelId: "anthropic/claude-sonnet-4.6",
+				cwd: "/repo/app",
+				workspaceRoot: "/repo/app",
+			}),
+			createBaseTools: () => [],
+			includeManagementTools: false,
+		});
+		const spawnTool = tools.find((tool) => tool.name === "team_spawn_teammate");
+		expect(spawnTool).toBeDefined();
+
+		await spawnTool?.execute(
+			{
+				agentId: "reviewer",
+				rolePrompt: "Review changes",
+			},
+			{
+				agentId: "lead",
+				conversationId: "conv-1",
+				iteration: 1,
+			},
+		);
+
+		const spawnedTools =
+			(
+				spawnTeammate.mock.calls[0]?.[0] as {
+					config?: { tools?: Array<{ name: string; execute: Function }> };
+				}
+			)?.config?.tools ?? [];
+		const handoff = spawnedTools.find((tool) => tool.name === "orvanta_submit_handoff");
+		expect(handoff).toBeDefined();
+
+		completeTask.mockImplementation(() => ({ id: "task_0001", status: "completed" }));
+		const result = await handoff!.execute(
+			{ taskId: "task_0001", content: "Review PASS" },
+			{ agentId: "reviewer", conversationId: "conv-1", iteration: 1 },
+		);
+		expect(result.ok).toBe(true);
+		expect(completeTask).toHaveBeenCalledWith(
+			"task_0001",
+			"reviewer",
+			"Review PASS",
+		);
+		expect(sendMessage).toHaveBeenCalledWith(
+			"reviewer",
+			"coordinator",
+			"Handoff task_0001",
+			"Review PASS",
+			"task_0001",
+		);
+	});
+
 	it("injects workspace metadata into cline teammate system prompt", async () => {
 		const spawnTeammate = vi.fn();
 		const runtime = {
@@ -914,6 +983,85 @@ describe("createAgentTeamsTools runtime behavior", () => {
 		expect(result2.status).toBe("joined");
 		expect(result2.deduped).toBe(true);
 		expect(result2.message).toContain("already dispatched");
+	});
+
+	it("lead team_send_message starts a run when the teammate is idle", async () => {
+		const startTeammateRun = vi.fn(() => ({ id: "run_mail_1" }));
+		const runtime = {
+			sendMessage: vi.fn(() => ({
+				id: "msg_1",
+				toAgentId: "reviewer",
+			})),
+			getMemberRole: vi.fn((id: string) =>
+				id === "lead" || id === "coordinator" ? "lead" : "teammate",
+			),
+			listRuns: vi.fn(() => []),
+			startTeammateRun,
+		} as unknown as AgentTeamsRuntime;
+
+		const tools = createAgentTeamsTools({
+			runtime,
+			requesterId: "coordinator",
+			teammateConfigProvider: makeTeammateConfigProvider(),
+		});
+		const send = tools.find((tool) => tool.name === "team_send_message");
+		expect(send).toBeDefined();
+		if (!send) {
+			throw new Error("Expected team_send_message tool to be defined");
+		}
+
+		const ctx = { agentId: "coordinator", conversationId: "conv-1", iteration: 1 };
+		await send.execute(
+			{
+				toAgentId: "reviewer",
+				subject: "Kiểm tra tình trạng hoạt động",
+				body: "Bạn có sẵn sàng nhận việc không?",
+			},
+			ctx,
+		);
+
+		expect(startTeammateRun).toHaveBeenCalledWith(
+			"reviewer",
+			expect.stringContaining("Kiểm tra tình trạng hoạt động"),
+			expect.objectContaining({ fromAgentId: "coordinator" }),
+		);
+	});
+
+	it("lead team_send_message does not start a run when teammate already has active work", async () => {
+		const startTeammateRun = vi.fn(() => ({ id: "run_mail_2" }));
+		const runtime = {
+			sendMessage: vi.fn(() => ({
+				id: "msg_2",
+				toAgentId: "reviewer",
+			})),
+			getMemberRole: vi.fn((id: string) =>
+				id === "lead" || id === "coordinator" ? "lead" : "teammate",
+			),
+			listRuns: vi.fn(() => [{ id: "run_existing", status: "running" }]),
+			startTeammateRun,
+		} as unknown as AgentTeamsRuntime;
+
+		const tools = createAgentTeamsTools({
+			runtime,
+			requesterId: "lead",
+			teammateConfigProvider: makeTeammateConfigProvider(),
+		});
+		const send = tools.find((tool) => tool.name === "team_send_message");
+		expect(send).toBeDefined();
+		if (!send) {
+			throw new Error("Expected team_send_message tool to be defined");
+		}
+
+		await send.execute(
+			{
+				toAgentId: "reviewer",
+				subject: "Ping",
+				body: "Still there?",
+			},
+			{ agentId: "lead", conversationId: "conv-1", iteration: 1 },
+		);
+
+		expect(startTeammateRun).not.toHaveBeenCalled();
 	});
 
 	it("returns explicit dispatch state for async team_run_task calls", async () => {

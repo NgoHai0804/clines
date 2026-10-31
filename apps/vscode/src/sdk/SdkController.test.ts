@@ -778,22 +778,25 @@ describe("cancelling a provisioning cloud task", () => {
 
 		await SdkController.prototype.cancelTask.call(controller as never)
 
-		expect(phases).toEqual(["resumable", "cleared"])
+		expect(phases).toEqual(["idle", "cleared"])
 		expect(controller.taskControl.cancelTask).not.toHaveBeenCalled()
 	})
 
 	it("cancels the pending cloud start when the user starts a new task", async () => {
 		const cancelPendingStart = vi.fn(() => true)
+		const resetMessageTranslatorAndFence = vi.fn()
 		const controller = {
 			turnStateTracker: { set: vi.fn() },
 			cloud: { cancelPendingStart },
 			taskControl: { clearTask: vi.fn(async () => undefined) },
 			postStateToWebview: vi.fn(async () => undefined),
+			resetMessageTranslatorAndFence,
 		}
 
 		await SdkController.prototype.clearTask.call(controller as never)
 
 		expect(cancelPendingStart).toHaveBeenCalledOnce()
+		expect(resetMessageTranslatorAndFence).toHaveBeenCalledOnce()
 		expect(controller.taskControl.clearTask).toHaveBeenCalledOnce()
 	})
 })

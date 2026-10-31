@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { SessionHistoryRecord } from "@cline/core"
@@ -154,6 +154,63 @@ describe("SdkTaskHistory", () => {
 				await readFile(join(workspaceRoot, ".orvanta", "history", "tasks", "task-1", "ui_messages.json"), "utf8"),
 			) as ClineMessage[]
 			expect(saved).toEqual([{ ...teammateMessage, partial: false }])
+		} finally {
+			await rm(workspaceRoot, { recursive: true, force: true })
+		}
+	})
+
+	it("prefers teammate-attributed ui_messages even when project storage roots are active", async () => {
+		const workspaceRoot = await mkdtemp(join(tmpdir(), "cline-history-project-ui-"))
+		const projectRoots = {
+			workspaceRoot,
+			teamStoreDir: join(workspaceRoot, ".orvanta", "local", "db"),
+			sdkDbDir: join(workspaceRoot, ".orvanta", "local", "sdk", "db"),
+			sdkArtifactDir: join(workspaceRoot, ".orvanta", "local", "sdk", "sessions"),
+		}
+		const displayMessages: ClineMessage[] = [
+			{ ts: 1, type: "say", say: "task", text: "Ship it" },
+			{
+				ts: 2,
+				type: "say",
+				say: "tool",
+				agentId: "reviewer-395529902aae-1",
+				text: JSON.stringify({ tool: "readFile", path: "hello.py" }),
+			},
+		]
+		await mkdir(join(workspaceRoot, ".orvanta", "history", "tasks", "task-1"), { recursive: true })
+		await writeFile(
+			join(workspaceRoot, ".orvanta", "history", "tasks", "task-1", "ui_messages.json"),
+			JSON.stringify(displayMessages),
+			"utf8",
+		)
+
+		const readMessages = vi.fn().mockResolvedValue([{ role: "user", content: "coordinator only" }])
+		const sessionRecord = makeSessionRecord("task-1", { cwd: workspaceRoot, workspaceRoot })
+		const host = {
+			get: vi.fn().mockResolvedValue(sessionRecord),
+			listHistory: vi.fn().mockResolvedValue([sessionRecord]),
+			readMessages,
+			start: vi.fn(),
+			update: vi.fn(),
+			delete: vi.fn(),
+		} as unknown as VscodeSessionHost
+		const sessions = {
+			getActiveSession: () => ({ sdkHost: host }),
+			getActiveSessionHost: () => host,
+			getUnscopedHost: async () => host,
+			getHostForWorkspaceRoot: async () => host,
+			resolveStorageRootsForWorkspace: vi.fn().mockResolvedValue(projectRoots),
+		} as unknown as SdkSessionLifecycle
+		const history = new SdkTaskHistory({
+			mcpHub: {} as McpHub,
+			sessions,
+			getWorkspaceRoot: async () => workspaceRoot,
+		})
+
+		try {
+			const result = await history.getClineMessages("task-1")
+			expect(result).toEqual(displayMessages)
+			expect(readMessages).not.toHaveBeenCalled()
 		} finally {
 			await rm(workspaceRoot, { recursive: true, force: true })
 		}
